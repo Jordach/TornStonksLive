@@ -335,11 +335,11 @@ class TornStonksLive(discord.Client):
 		# Yes, we know this kind of shit is dirty
 		if message.content.startswith("!help"):
 			if message.content == "!help":
-				await message.channel.send("Commands for this bot can be located at: https://github.com/Jordach/TornStonksLive/blob/main/README.md :zap:")
+				await message.channel.send("The command reference for this bot can be located at: https://github.com/Jordach/TornStonksLive#command-reference :zap:")
 			else:
 				command = message.content.split(" ", 2)
 				if len(command) > 1:
-					print("fill out later")
+					await message.channel.send("You've used an extra argument for specific command help, sorry, but that's currently being worked on. In the meantime, use the command reference here: https://github.com/Jordach/TornStonksLive#command-reference :zap:")
 				else:
 					embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
 					embed.color = discord.Color.red()
