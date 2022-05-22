@@ -270,7 +270,6 @@ class TornStonksLive(discord.Client):
 						del userdata["type"][key]
 						del userdata["stock"][key]
 						del userdata["value"][key]
-				print(userdata)
 				write_user_alerts()
 			
 			# Detect sudden market changes, such as massive buys >100bn worth of shares and >500bn worth of shares
