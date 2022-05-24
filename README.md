@@ -2,8 +2,6 @@
 TornStonks, but now a Discord bot.
 
 # Command Reference
-_______
-
 ## Help Command:
 `!help`
 
@@ -11,8 +9,6 @@ Gives a link to this part of the README.
 
 `!help command_name`
 
-_______
-_______
 ## Stock Command:
 Displays detailed help for that command including arguments.
 
@@ -48,8 +44,6 @@ Displays stock information relative to now, in months. Replace the 1 with any nu
 
 Displays stock information relative to now, in years. Replace the 1 with any number, cannot be negative. `y1` is equal to `d365`.
 
-_______
-_______
 ## Up and Down Command:
 
 `!up three_letter_stock_name value_to_reach`
@@ -57,8 +51,6 @@ _______
 
 Sets up an automatic alert for when the specified stock value exceeds or falls under a specified value.
 
-_______
-_______
 ## Buy and Sell Command:
 
 `!buy money_to_buy_shares_with three_letter_stock_name`
@@ -69,8 +61,6 @@ Shows how many shares can be bought for the current price of a stock, includes l
 
 Shows how much money you'd make for selling the specified number of shares for the chosen stock, includes pre and post stock exchange tax.
 
-_______
-_______
 # Administration Commands:
 ## Stop Command:
 
