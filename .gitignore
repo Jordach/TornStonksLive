@@ -130,5 +130,6 @@ dmypy.json
 
 # No syncing of configs
 settings.conf
+channels.conf
 admins.conf
 userdata.csv

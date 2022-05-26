@@ -33,10 +33,6 @@ notstonks_png = "https://cdn.discordapp.com/attachments/315121916199305218/97630
 stonks_png = "https://cdn.discordapp.com/attachments/315121916199305218/976306804176863293/tornstonks.png"
 
 bot_token = ""
-channel_id = 0
-stockwatch_role = 0
-opportunity_role = 0
-
 with open("settings.conf", "r") as system_config:
 	config_lines = system_config.readlines()
 	count = 0
@@ -44,20 +40,42 @@ with open("settings.conf", "r") as system_config:
 		count += 1
 		if count == 1:
 			bot_token = line.strip()
-		elif count == 2:
-			channel_id = int(line.strip())
-		elif count == 3:
-			stockwatch_role = int(line.strip())
-		elif count == 4:
-			opportunity_role = int(line.strip())
 		else:
 			break
+
+if bot_token == "":
+	with open() as file:
+		file.write("")
+	raise Exception("Bot token is missing")
+
+channels = {"id":[], "small":[], "medium":[], "large":[]}
+with open("channels.conf", "r") as channel_config:
+	lines = channel_config.readlines()
+	for line in lines:
+		data = line.strip().split(",", 3)
+		if len(data) == 4:
+			channels["id"].append(int(data[0]))
+			channels["small"].append(int(data[1]))
+			channels["medium"].append(int(data[2]))
+			channels["large"].append(int(data[3]))
+		else:
+			write_notification_to_log("[WARNING] channels.conf has incorrect data, skipping the malformed line.")
+
+if len(channels["id"]) == 0:
+	with open("channels.conf", "w") as file:
+		file.write("")
+	raise Exception("No channels to send/receive messages to - channels.conf created.")
 
 bot_admins = []
 with open("admins.conf", "r") as admin_config:
 	lines = admin_config.readlines()
 	for line in lines:
 		bot_admins.append(int(line.strip()))
+
+if len(bot_admins) == 0:
+	with open("admins.conf", "w") as file:
+		file.write("")
+	raise Exception("No admins registered to control admin features - admins.conf created.")
 
 userdata = {"id":[], "type":[], "stock":[], "value":[]}
 def read_user_alerts():
@@ -106,7 +124,7 @@ def write_user_alerts():
 
 pp = pprint.PrettyPrinter(indent=4)
 
-tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,m30,d1,w1,n1"
+tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
 tornsy_data = requests.get(tornsy_api_address)
 
 # Nicked from https://schedule.readthedocs.io/en/stable/background-execution.html
@@ -210,7 +228,31 @@ class TornStonksLive(discord.Client):
 		global bot_started
 		bot_started = True
 
-	# This is like running with scissors, not going to lie one bit
+	async def alert_roles(self, embed, value):
+		for key in range(0, len(channels["id"])):
+			channel = await client.fetch_channel(channels["id"][key])
+			sml = "<@&"+str(channels["small"][key])+">"
+			med = "<@&"+str(channels["medium"][key])+">"
+			lrg = "<@&"+str(channels["large"][key])+">"
+			if value >= (750 * 1000000000):
+				await channel.send(sml + ", " + med + ", " + lrg, embed=embed)
+			elif value >= (450 * 1000000000):
+				await channel.send(sml + ", " + med, embed=embed)
+			else:
+				await channel.send(sml, embed=embed)
+
+	def set_author(self, message, embed):
+		if message.author.avatar:
+			embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+		else:
+			embed.set_author(name=message.author.display_name)
+
+	def set_author_notif(self, user, embed):
+		if user.avatar:
+			embed.set_author(name=user.name, icon_url="https://cdn.discordapp.com/avatars/"+str(user.id)+"/"+user.avatar+".png")
+		else:
+			embed.set_author(name=user.name)
+
 	# calling async from sync env is like lighting a match at a
 	# petrol station, seriously NOT recommended
 	async def alert_user(self, item, id, type, stock, value, data):
@@ -222,7 +264,7 @@ class TornStonksLive(discord.Client):
 			embed.add_field(name="Stonks!", value=data["name"] + " has reached or exceeded your target price of: $" + "{:,}".format(value) + ".")
 			embed.set_thumbnail(url=stonks_png)
 			user = await self.fetch_user(id)
-			embed.set_author(name=user.name, icon_url="https://cdn.discordapp.com/avatars/"+str(id)+"/"+user.avatar+".png")
+			self.set_author_notif(user, embed)
 			await user.send(embed=embed)
 		elif type == "down":
 			embed = discord.Embed(title=data["name"] + " Below Target Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(stock)+"&tab=owned")
@@ -231,20 +273,8 @@ class TornStonksLive(discord.Client):
 			embed.add_field(name="Stonks!", value=data["name"] + " has reached or fallen under your target price of: $" + "{:,}".format(value) + ".")
 			embed.set_thumbnail(url=stonks_png)
 			user = await self.fetch_user(id)
-			embed.set_author(name=user.name, icon_url="https://cdn.discordapp.com/avatars/"+str(id)+"/"+user.avatar+".png")
+			self.set_author_notif(user, embed)
 			await user.send(embed=embed)
-
-	async def alert_opportunity(sel, embed, message):
-		channel = await client.fetch_channel(channel_id)
-		await channel.send("<@&"+str(opportunity_role)+"> " + message, embed=embed)
-
-	async def alert_opportunity_shares(self, embed):
-		channel = await client.fetch_channel(channel_id)
-		await channel.send("<@&"+str(opportunity_role)+">", embed=embed)
-
-	async def alert_stockwatch(self, embed):
-		channel = await client.fetch_channel(channel_id)
-		await channel.send("<@&"+str(stockwatch_role)+">", embed=embed)
 
 	def process_stockdata(self):
 		# Handle user up and down settings6
@@ -264,7 +294,7 @@ class TornStonksLive(discord.Client):
 							remove_entries.append(item)
 			# Don't bother removing entries when there's no real need to
 			if len(remove_entries) > 0:
-				for key in range(len(userdata["id"]), -1, -1):
+				for key in range(len(userdata["id"])-1, -1, -1):
 					if key in remove_entries:
 						del userdata["id"][key]
 						del userdata["type"][key]
@@ -288,75 +318,52 @@ class TornStonksLive(discord.Client):
 
 			# Sell event
 			if total_shares < total_shares_m1 and data["stock"] != "TCSE":
-				if value_total >= 500000000000:
-					embed = discord.Embed(title=data["name"] + " SOLD OFF!", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
+				if value_total >= (150 * 1000000000):
+					embed = discord.Embed(title= "Large Sell Off: " + data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 					embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
 					embed.color = discord.Color.red()
 					embed.add_field(name=":handshake: Change in Shares:", value="-"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
 					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
 					embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
 					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
-					client.loop.create_task(self.alert_stockwatch(embed))
-				elif value_total >= 100000000000:
-					embed = discord.Embed(title=data["name"] + " Sold!", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
-					embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
-					embed.color = discord.Color.red()
-					embed.add_field(name=":handshake: Change in Shares:", value="-"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
-					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
-					embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
-					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
-					client.loop.create_task(self.alert_opportunity_shares(embed))
+					client.loop.create_task(self.alert_roles(embed, value_total))
 			# Buy event
 			elif total_shares > total_shares_m1 and data["stock"] != "TCSE":
-				if value_total >= 500000000000:
-					embed = discord.Embed(title=data["name"] + " BOUGHT!", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
+				if value_total >= (150 * 1000000000):
+					embed = discord.Embed(title="Large Buy In: " + data["name"] + " Bought!", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 					embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
 					embed.color = discord.Color.green()
 					embed.add_field(name=":handshake: Change in Shares:", value="+"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
 					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
 					embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
 					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
-					client.loop.create_task(self.alert_stockwatch(embed))
-				elif value_total >= 100000000000:
-					embed = discord.Embed(title=data["name"] + " Bought!", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
-					embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
-					embed.color = discord.Color.green()
-					embed.add_field(name=":handshake: Change in Shares:", value="+"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
-					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
-					embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
-					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
-					client.loop.create_task(self.alert_opportunity_shares(embed))
-				
-	async def on_message(self, message):
-		# The bot should never respond to itself, ever
-		if message.author == self.user:
-			return
+					client.loop.create_task(self.alert_roles(embed, value_total))
 
-		# Only respond in our designated channel to not shit up the place
-		if message.channel.id != channel_id and message.guild:
-			return
-
-		global json_data
-		# Yes, we know this kind of shit is dirty
+	async def help(self, message):
 		if message.content.startswith("!help"):
 			if message.content == "!help":
-				await message.channel.send("The command reference for this bot can be located at: https://github.com/Jordach/TornStonksLive#command-reference :zap:", mention_author=False, reference=message)
+				embed = discord.Embed(title="https://github.com/Jordach/TornStonksLive#command-reference", url="https://github.com/Jordach/TornStonksLive#command-reference")
+				embed.color = discord.Color.purple()
+				self.set_author(message, embed)
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
 			else:
 				command = message.content.split(" ", 2)
 				if len(command) > 1:
 					embed = discord.Embed(title="https://github.com/Jordach/TornStonksLive#command-reference", url="https://github.com/Jordach/TornStonksLive#command-reference")
-					embed.color = discord.Color.green()
-					embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+					embed.color = discord.Color.purple()
+					self.set_author(message, embed)
 					await message.channel.send("You've used an extra argument for specific command help, sorry, but that's currently being worked on. In the meantime, use the command reference here:", embed=embed, mention_author=False, reference=message)
 				else:
 					embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
 					embed.color = discord.Color.red()
-					embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
-					embed.add_field(name="Details:", value="The command arguments are either missing or the command is not found.")
+					self.set_author(message, embed)
+					embed.add_field(name="Details:", value="The command arguments are either missing or the specified command is not found.")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
-		elif message.content.startswith("!stock"):
+
+	async def stock(self, message):
+		if message.content.startswith("!stock"):
 			command = message.content.split(" ", 2)
-			if len(command) > 2:
+			if len(command) == 3:
 				timestamp = str(command[2].lower())
 				nicename = timestamp
 				if timestamp.isdigit():
@@ -375,7 +382,7 @@ class TornStonksLive(discord.Client):
 							investors = int(data["investors"])
 							embed = discord.Embed(title=data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 							embed.color = discord.Color.blue()
-							embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+							self.set_author(message, embed)
 							embed.add_field(name=":money_with_wings: Current Price:", value="$"+str(data["price"]), inline=False)
 							embed.add_field(name=":money_with_wings: Historic Price (" + nicename + "):", value="$"+str(data["interval"][timestamp]["price"]) + " (" + str("{:,.2f}".format(perc_price)) + "%)", inline=False)
 							embed.add_field(name=":handshake: Shares Owned:", value="{:,}".format(data["total_shares"]), inline=False)
@@ -394,28 +401,70 @@ class TornStonksLive(discord.Client):
 					embed = discord.Embed(title=":no_entry_sign: Unable to connect to Tornsy. :no_entry_sign:")
 					embed.color = discord.Color.red()
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
-			if len(command) > 1:
+			if len(command) == 2:
 				for data in json_data["data"]:
 					if data["stock"] == command[1].upper():
 						price = float(data["price"])
-						price_h = float(data["interval"]["m30"]["price"])
-						perc_price = float((price - price_h) / price_h) * 100
+						price_h = float(data["interval"]["h1"]["price"])
+						price_d = float(data["interval"]["d1"]["price"])
+						price_w = float(data["interval"]["w1"]["price"])
+						price_n = float(data["interval"]["n1"]["price"])
+						perc_price_h = float((price - price_h) / price_h) * 100
+						perc_price_d = float((price - price_d) / price_d) * 100
+						perc_price_w = float((price - price_w) / price_w) * 100
+						perc_price_n = float((price - price_n) / price_n) * 100
+
 						shares = int(data["total_shares"])
-						shares_h = int(data["interval"]["m30"]["total_shares"])
-						perc_shares = float((shares - shares_h) / shares_h) * 100
+						shares_h = int(data["interval"]["h1"]["total_shares"])
+						shares_d = int(data["interval"]["d1"]["total_shares"])
+						shares_w = int(data["interval"]["w1"]["total_shares"])
+						shares_n = int(data["interval"]["n1"]["total_shares"])
+						perc_shares_h = float((shares - shares_h) / shares_h) * 100
+						perc_shares_d = float((shares - shares_d) / shares_d) * 100
+						perc_shares_w = float((shares - shares_w) / shares_w) * 100
+						perc_shares_n = float((shares - shares_n) / shares_n) * 100
+
 						investors = int(data["investors"])
-						investors_h = int(data["interval"]["m30"]["investors"])
-						perc_investors = float((investors - investors_h) / investors_h) * 100
+						investors_h = int(data["interval"]["h1"]["investors"])
+						investors_d = int(data["interval"]["d1"]["investors"])
+						investors_w = int(data["interval"]["w1"]["investors"])
+						investors_n = "N/A"
+						if data["interval"]["n1"]["investors"]:
+							investors_n = int(data["interval"]["n1"]["investors"])
+						perc_investors_h = float((investors - investors_h) / investors_h) * 100
+						perc_investors_d = float((investors - investors_d) / investors_d) * 100
+						perc_investors_w = float((investors - investors_w) / investors_w) * 100
+						perc_investors_n = "N/A"
+						if data["interval"]["n1"]["investors"]:
+							perc_investors_n = float((investors - investors_n) / investors_n) * 100
+						
 						embed = discord.Embed(title=data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 						embed.color = discord.Color.blue()
-						embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+						self.set_author(message, embed)
 						embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
-						embed.add_field(name=":money_with_wings: Current Price:", value="$"+str(data["price"]), inline=False)
-						embed.add_field(name=":money_with_wings: Historic Price (m30):", value="$"+str(data["interval"]["m30"]["price"]) + " (" + str("{:,.2f}".format(perc_price)) + "%)", inline=False)
-						embed.add_field(name=":handshake: Shares Owned:", value="{:,}".format(data["total_shares"]), inline=False)
-						embed.add_field(name=":handshake: Historic Shares Owned (m30):", value="{:,}".format(data["interval"]["m30"]["total_shares"]) + " (" + str("{:,.2f}".format(perc_shares)) + "%)", inline=False)
-						embed.add_field(name=":crown: Investors:", value=str("{:,}".format(data["investors"])), inline=False)
-						embed.add_field(name=":crown: Historic Investors (m30):", value="{:,}".format(data["interval"]["m30"]["investors"]) + " (" + str("{:,.2f}".format(perc_investors)) + "%)", inline=False)
+						price_str = "$"+"{:,.2f}".format(price) + "\n"
+						price_str = price_str + "$"+"{:,.2f}".format(price_h) + " (" + "{:,.2f}".format(perc_price_h) + "%, h1)\n"
+						price_str = price_str + "$"+"{:,.2f}".format(price_d) + " (" + "{:,.2f}".format(perc_price_d) + "%, d1)\n"
+						price_str = price_str + "$"+"{:,.2f}".format(price_w) + " (" + "{:,.2f}".format(perc_price_w) + "%, w1)\n"
+						price_str = price_str + "$"+"{:,.2f}".format(price_n) + " (" + "{:,.2f}".format(perc_price_n) + "%, n1)"
+						embed.add_field(name=":money_with_wings: Price:", value=price_str, inline=False)
+						
+						shares_str = "{:,}".format(shares) + "\n"
+						shares_str = shares_str + "{:,}".format(shares_h) + " (" + "{:,.2f}".format(perc_shares_h) + "%, h1)\n"
+						shares_str = shares_str + "{:,}".format(shares_d) + " (" + "{:,.2f}".format(perc_shares_d) + "%, d1)\n"
+						shares_str = shares_str + "{:,}".format(shares_w) + " (" + "{:,.2f}".format(perc_shares_w) + "%, w1)\n"
+						shares_str = shares_str + "{:,}".format(shares_n) + " (" + "{:,.2f}".format(perc_shares_n) + "%, n1)"
+						embed.add_field(name=":handshake: Shares Owned:", value=shares_str, inline=False)
+
+						investors_str = "{:,}".format(investors) + "\n"
+						investors_str = investors_str + "{:,}".format(investors_h) + " (" + "{:,.2f}".format(perc_investors_h) + "%, h1)\n"
+						investors_str = investors_str + "{:,}".format(investors_d) + " (" + "{:,.2f}".format(perc_investors_d) + "%, d1)\n"
+						investors_str = investors_str + "{:,}".format(investors_w) + " (" + "{:,.2f}".format(perc_investors_w) + "%, w1)\n"
+						if data["interval"]["n1"]["investors"]:
+							investors_str = investors_str + "{:,}".format(investors_n) + " (" + "{:,.2f}".format(perc_investors_n) + "%, n1)"
+						else:
+							investors_str = investors_str + " (n1)"
+						embed.add_field(name=":crown: Investors:", value=investors_str, inline=False)
 						await message.channel.send(embed=embed, mention_author=False, reference=message)
 						return
 				embed = discord.Embed(title=":no_entry_sign: Stock not found. :no_entry_sign:")
@@ -425,7 +474,9 @@ class TornStonksLive(discord.Client):
 				embed = discord.Embed(title=":no_entry_sign: Missing the three letter short name. :no_entry_sign:")
 				embed.color = discord.Color.red()
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
-		elif message.content.startswith("!up"):
+
+	async def alerts(self, message):
+		if message.content.startswith("!up"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				userdata["id"].append(int(message.author.id))
@@ -439,14 +490,14 @@ class TornStonksLive(discord.Client):
 			else:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
 				embed.color = discord.Color.red()
-				embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+				self.set_author(message, embed)
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!up sym 123.45`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 		elif message.content.startswith("!down"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				userdata["id"].append(int(message.author.id))
-				userdata["type"].append("up")
+				userdata["type"].append("down")
 				userdata["stock"].append(command[1].lower())
 				userdata["value"].append(float(command[2]))
 				write_user_alerts()
@@ -456,10 +507,12 @@ class TornStonksLive(discord.Client):
 			else:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
 				embed.color = discord.Color.red()
-				embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+				self.set_author(message, embed)
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!down sym 123.45`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
-		elif message.content.startswith("!buy"):
+
+	async def buy(self, message):
+		if message.content.startswith("!buy"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				if command[1].isdigit():
@@ -471,7 +524,7 @@ class TornStonksLive(discord.Client):
 							
 							embed = discord.Embed(title=data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 							embed.color = discord.Color.blue()
-							embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+							self.set_author(message, embed)
 							embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
 							embed.add_field(name=":handshake: Purchaseable Shares:", value="{:,.0f}".format(total_shares) + " @ $" +str(data["price"] + " per share."), inline=False)
 							embed.add_field(name=":credit_card: Money Spent:", value="$"+"{:,.0f}".format(total_money), inline=False)
@@ -481,23 +534,25 @@ class TornStonksLive(discord.Client):
 
 					embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
 					embed.color = discord.Color.red()
-					embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+					self.set_author(message, embed)
 					embed.add_field(name="Details:", value="The stock specified cannot be found.")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 					return
 				else:
 					embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
 					embed.color = discord.Color.red()
-					embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+					self.set_author(message, embed)
 					embed.add_field(name="Details:", value="The argument for cash on hand is invalid, ensure it's a number with no commas, dollar signs, or letters.")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 			else:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
 				embed.color = discord.Color.red()
-				embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+				self.set_author(message, embed)
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!buy 1000000000 iou`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
-		elif message.content.startswith("!sell"):
+
+	async def sell(self, message):
+		if message.content.startswith("!sell"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				if command[1].isdigit():
@@ -507,7 +562,7 @@ class TornStonksLive(discord.Client):
 							pos_tax = pre_tax * 0.999
 							embed = discord.Embed(title=data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 							embed.color = discord.Color.blue()
-							embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+							self.set_author(message, embed)
 							embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
 							embed.add_field(name=':handshake: Shares "Sold":', value="{:,}".format(int(command[1])) + " @ $" + data["price"] + " per share.", inline=False)
 							embed.add_field(name=":dollar: Value of Shares Pre Tax:", value="$"+"{:,.0f}".format(pre_tax), inline=False)
@@ -516,23 +571,25 @@ class TornStonksLive(discord.Client):
 							return
 					embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
 					embed.color = discord.Color.red()
-					embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+					self.set_author(message, embed)
 					embed.add_field(name="Details:", value="The stock specified cannot be found.")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 					return
 				else:
 					embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
 					embed.color = discord.Color.red()
-					embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+					self.set_author(message, embed)
 					embed.add_field(name="Details:", value="The argument for number of shares is invalid, ensure it's a number with no commas, or letters.")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 			else:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
 				embed.color = discord.Color.red()
-				embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+				self.set_author(message, embed)
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or number of shares, or too few or too many arguments, try the following example:\n\n`!sell 1000000 iou`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
-		elif message.content == "!stop":
+
+	async def stop(self, message):
+		if message.content == "!stop":
 			global bot_admins
 			if int(message.author.id) in bot_admins:
 				write_user_alerts()
@@ -542,16 +599,163 @@ class TornStonksLive(discord.Client):
 			else:
 				embed = discord.Embed(title=":no_entry_sign: Permission Required :no_entry_sign:")
 				embed.color = discord.Color.red()
-				embed.set_author(name=message.author.display_name, icon_url="https://cdn.discordapp.com/avatars/"+str(message.author.id)+"/"+message.author.avatar+".png")
+				self.set_author(message, embed)
 				embed.add_field(name="Details:", value="You are not authorised to stop the bot.")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
-		#elif message.content.startswith("!test"):
-			#user = await self.fetch_user(message.author.id)
-			#pp.pprint(user)
-			#await user.send("test 2")
-			#await message.author.send("test")
-			#pp.pprint(message.guild.members)
 
+	async def forget(self, message):
+		if message.content.startswith("!forget"):
+			if message.content == "!forgetme":
+				if int(message.author.id) in userdata["id"]:
+					for key in range(len(userdata["id"])-1, -1, -1):
+						if int(message.author.id) == userdata["id"][key]:
+							write_notification_to_log("[NOTICE]: " + message.author.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
+							del userdata["id"][key]
+							del userdata["type"][key]
+							del userdata["stock"][key]
+							del userdata["value"][key]
+					
+					write_user_alerts()
+					embed = discord.Embed(title="")
+					embed.color = discord.Color.red()
+					self.set_author(message, embed)
+					embed.add_field(name="All of your pending notifications deleted.", value="Thank you for using TornStonks Live; have a nice day. :wave:")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+				else:
+					embed = discord.Embed(title="")
+					embed.color = discord.Color.dark_green()
+					self.set_author(message, embed)
+					embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+			else:
+				command = message.content.split(" ", 3)
+				c_len = len(command)
+				if c_len > 1:
+					# Anti idiot security
+					if c_len >= 3:
+						if command[2].lower() != "up" and command[2].lower() != "down":
+							embed = discord.Embed(title=":no_entry_sign: Invalid Argument: :no_entry_sign:")
+							embed.color = discord.Color.red()
+							self.set_author(message, embed)
+							embed.add_field(name="Details:", value='Command argument after stock ticker must be exactly "up" or "down".')
+							await message.channel.send(embed=embed, mention_author=False, reference=message)
+							return
+						
+					if c_len == 4:
+						if not command[3].isdigit():
+							embed = discord.Embed(title=":no_entry_sign: Invalid Argument: :no_entry_sign:")
+							embed.color = discord.Color.red()
+							self.set_author(message, embed)
+							embed.add_field(name="Details:", value='Command argument after notification type must be a number, argument example: `123.45`')
+							await message.channel.send(embed=embed, mention_author=False, reference=message)
+							return
+					# Remove pending items if we have some
+					if int(message.author.id) in userdata["id"]:
+						for key in range(len(userdata["id"])-1, -1, -1):
+							if int(message.author.id) == userdata["id"][key]:
+								if c_len == 4:
+									if command[1].lower() == userdata["stock"][key] and command[2].lower() == userdata["type"][key] and float(command[3]) == userdata["value"][key]:
+										write_notification_to_log("[NOTICE]: " + message.author.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
+										del userdata["id"][key]
+										del userdata["type"][key]
+										del userdata["stock"][key]
+										del userdata["value"][key]
+								elif c_len == 3:
+									if command[1].lower() == userdata["stock"][key] and command[2].lower() == userdata["type"][key]:
+										write_notification_to_log("[NOTICE]: " + message.author.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
+										del userdata["id"][key]
+										del userdata["type"][key]
+										del userdata["stock"][key]
+										del userdata["value"][key]
+								elif c_len == 2:
+									if command[1].lower() == userdata["stock"][key]:
+										write_notification_to_log("[NOTICE]: " + message.author.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
+										del userdata["id"][key]
+										del userdata["type"][key]
+										del userdata["stock"][key]
+										del userdata["value"][key]
+						write_user_alerts()
+						embed = discord.Embed(title="")
+						embed.color = discord.Color.red()
+						self.set_author(message, embed)
+						embed.add_field(name="Specified Pending Notification(s) Deleted!",  value="Thank you for using TornStonks Live; have a nice day. :wave:")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+					else:
+						embed = discord.Embed(title="")
+						embed.color = discord.Color.dark_green()
+						self.set_author(message, embed)
+						embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+				else:
+					embed = discord.Embed(title=":no_entry_sign: Invalid Arguments: :no_entry_sign:")
+					embed.color = discord.Color.red()
+					self.set_author(message, embed)
+					embed.add_field(name="Details:", value="Missing the stock ticker. Example commands: `!forget sym` `!forget sym up` `!forget sym up 700`")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+	
+	async def notifications(self, message):
+		if message.content.startswith("!notifications") or message.content.startswith("!alerts"):
+			command = message.content.split(" ", 3)
+			if command[0] == "!notifications" or command[0] == "!alerts":
+				if len(command) >= 2:
+					if command[1].lower() != "up" and command[1].lower() != "down":
+						embed = discord.Embed(title=":no_entry_sign: Invalid Argument: :no_entry_sign:")
+						embed.color = discord.Color.red()
+						self.set_author(message, embed)
+						embed.add_field(name="Details:", value='Command argument after stock ticker must be exactly "up" or "down".')
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+						return
+
+				if int(message.author.id) in userdata["id"]:
+					known_alerts = ""
+					for key in range(0, len(userdata["id"])):
+						if int(message.author.id) == userdata["id"][key]:
+							if len(command) == 3:
+								if command[1] == userdata["type"][key] and command[2] == userdata["stock"][key]:
+									known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`\n"
+							elif len(command) == 2:
+								if command[1] == userdata["type"][key]:
+									known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`\n"
+							else:
+								known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`It\n"
+					if known_alerts != "":
+						embed = discord.Embed(title="")
+						embed.color = discord.Color.blue()
+						self.set_author(message, embed)
+						embed.add_field(name="Pending Notifications:", value=known_alerts)
+						user = await client.fetch_user(message.author.id)
+						await user.send(embed=embed)
+					else:
+						embed = discord.Embed(title="")
+						embed.color = discord.Color.dark_green()
+						self.set_author(message, embed)
+						embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+				else:
+					embed = discord.Embed(title="")
+					embed.color = discord.Color.dark_green()
+					self.set_author(message, embed)
+					embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+
+	async def on_message(self, message):
+		# The bot should never respond to itself, ever
+		if message.author == self.user:
+			return
+
+		global channels
+		# Only respond in our designated channels to not shit up the place
+		if not int(message.channel.id) in channels["id"] and message.guild:
+			return
+		
+		await self.help(message)
+		await self.stock(message)
+		await self.alerts(message)
+		await self.buy(message)
+		await self.sell(message)
+		await self.stop(message)
+		await self.forget(message)
+		await self.notifications(message)
 
 client = TornStonksLive(intents=intent)
 client.run(bot_token)
