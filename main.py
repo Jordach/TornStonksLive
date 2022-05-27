@@ -755,9 +755,9 @@ class TornStonksLive(discord.Client):
 		await self.alerts(message)
 		await self.buy(message)
 		await self.sell(message)
-		await self.stop(message)
 		await self.forget(message)
 		await self.notifications(message)
+		await self.stop(message)
 
 client = TornStonksLive(intents=intent)
 client.run(bot_token)

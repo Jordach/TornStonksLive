@@ -14,7 +14,7 @@ Displays detailed help for that command including arguments.
 
 `!stock three_letter_stock_name`
 
-Displays detailed stock information about the stock chosen, by default, returns stock data from 30 minutes ago.
+Displays detailed stock information about the stock chosen, by default, returns stock data from 1 hour, 1 day, 1 week and 1 month ago.
 
 `!stock three_letter_stock_name UNIX_timestamp`
 
@@ -60,6 +60,40 @@ Shows how many shares can be bought for the current price of a stock, includes l
 `!sell num_of_shares three_letter_stock_name`
 
 Shows how much money you'd make for selling the specified number of shares for the chosen stock, includes pre and post stock exchange tax.
+
+## Notifications / Alerts:
+
+`!alerts`
+
+`!notifications`
+
+Displays all pending alerts and notifications. These two commands are interchangeable.
+
+`!alerts up/down`
+
+Displays all pending alerts that are either from the corresponding `!up` or `!down` command.
+
+`!alerts up/down three_letter_stock_name`
+
+Displays all pending alerts that are either from the corresponding `!up` or `!down` command and are also matching that stock ticker.
+
+## Forget:
+
+`!forgetme`
+
+Deletes all of your pending alerts from the bot's knowledge.
+
+`!forget three_letter_stock_name`
+
+Deletes all pending alerts for the provided stock ticker.
+
+`!forget three_letter_stock_name up/down`
+
+Deletes all pending alerts for the provided stock ticker that are also from the respective `!up` or `!down` command.
+
+`!forget three_letter_stock_name up/down value`
+
+Deletes any pending alert that matches the stock ticker, `!up` and `!down` command, and also the value.
 
 # Administration Commands:
 ## Stop Command:
