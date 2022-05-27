@@ -771,7 +771,21 @@ class TornStonksLive(discord.Client):
 						del userdata["stock"][key]
 						del userdata["value"][key]
 						write_user_alerts()
+						embed = discord.Embed(title="")
+						embed.color = discord.Color.red()
+						self.set_author(message, embed)
+						# Please note this emoji only works on the offical bot;
+						# Will find a way to replace this line with one of your choosing
+						embed.add_field(name="Mistake Erased.",  value="Try not to make a mess of the channel history next time. <:thonk:721869856508477460>")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
 						return
+			else:
+				embed = discord.Embed(title="")
+				embed.color = discord.Color.dark_green()
+				self.set_author(message, embed)
+				embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
+				await message.channel.send(embed=embed, mention_author=False, reference=message)		
+			
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
