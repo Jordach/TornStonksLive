@@ -324,7 +324,10 @@ class TornStonksLive(discord.Client):
 					embed.color = discord.Color.red()
 					embed.add_field(name=":handshake: Change in Shares:", value="-"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
 					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
-					embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
+					if value_total >= (1000 * 1000000000):
+						embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn / 1000) + "tn)", inline=False)
+					else:
+						embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
 					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
 					client.loop.create_task(self.alert_roles(embed, value_total))
 			# Buy event
@@ -335,7 +338,10 @@ class TornStonksLive(discord.Client):
 					embed.color = discord.Color.green()
 					embed.add_field(name=":handshake: Change in Shares:", value="+"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
 					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
-					embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
+					if value_total >= (1000 * 1000000000):
+						embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn / 1000) + "tn)", inline=False)
+					else:
+						embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
 					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
 					client.loop.create_task(self.alert_roles(embed, value_total))
 
