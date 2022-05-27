@@ -221,12 +221,23 @@ def lut_stock_id(name):
 
 intent = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 
+undo_list = []
+undo_list.append("!undo")
+undo_list.append("!fuck")
+undo_list.append("!f**k")
+undo_list.append("!shit")
+undo_list.append("!ohno")
+undo_list.append("!oops")
+
 class TornStonksLive(discord.Client):
 	async def on_ready(self):
 		print("Bot logged on as {0}!".format(self.user))
 		await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Torn City Stocks"))
 		global bot_started
 		bot_started = True
+
+	def strip_commas(self, value):
+		return str(value).replace(",", "")
 
 	async def alert_roles(self, embed, value):
 		for key in range(0, len(channels["id"])):
@@ -285,11 +296,11 @@ class TornStonksLive(discord.Client):
 			for item in range(0, len(userdata["id"])):
 				if userdata["stock"][item].upper() == data["stock"]:
 					if userdata["type"][item] == "up":
-						if float(data["price"]) >= float(userdata["value"][item]):
+						if float(data["price"]) >= userdata["value"][item]:
 							client.loop.create_task(self.alert_user(item, userdata["id"][item], userdata["type"][item], userdata["stock"][item], userdata["value"][item], data))
 							remove_entries.append(item)
 					elif userdata["type"][item] == "down":
-						if float(data["price"]) <= float(userdata["value"][item]):
+						if float(data["price"]) <= userdata["value"][item]:
 							client.loop.create_task(self.alert_user(item, userdata["id"][item], userdata["type"][item], userdata["stock"][item], userdata["value"][item], data))
 							remove_entries.append(item)
 			# Don't bother removing entries when there's no real need to
@@ -490,7 +501,7 @@ class TornStonksLive(discord.Client):
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("up")
 				userdata["stock"].append(command[1].lower())
-				userdata["value"].append(float(command[2]))
+				userdata["value"].append(float(self.strip_commas(command[2])))
 				write_user_alerts()
 				embed = discord.Embed(title=":white_check_mark: Will send you a DM when the criteria is reached. :white_check_mark:")
 				embed.color = discord.Color.dark_green()
@@ -507,7 +518,7 @@ class TornStonksLive(discord.Client):
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("down")
 				userdata["stock"].append(command[1].lower())
-				userdata["value"].append(float(command[2]))
+				userdata["value"].append(float(self.strip_commas(command[2])))
 				write_user_alerts()
 				embed = discord.Embed(title=":white_check_mark: Will send you a DM when the criteria is reached. :white_check_mark:")
 				embed.color = discord.Color.dark_green()
@@ -523,6 +534,7 @@ class TornStonksLive(discord.Client):
 		if message.content.startswith("!buy"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
+				command[1] = self.strip_commas(command[1])
 				if command[1].isdigit():
 					for data in json_data["data"]:
 						if data["stock"] == command[2].upper():
@@ -563,6 +575,7 @@ class TornStonksLive(discord.Client):
 		if message.content.startswith("!sell"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
+				command[1] = self.strip_commas(command[1])
 				if command[1].isdigit():
 					for data in json_data["data"]:
 						if data["stock"] == command[2].upper():
@@ -650,6 +663,7 @@ class TornStonksLive(discord.Client):
 							return
 						
 					if c_len == 4:
+						command[3] = self.strip_commas(command[3])
 						if not command[3].isdigit():
 							embed = discord.Embed(title=":no_entry_sign: Invalid Argument: :no_entry_sign:")
 							embed.color = discord.Color.red()
@@ -725,7 +739,7 @@ class TornStonksLive(discord.Client):
 								if command[1] == userdata["type"][key]:
 									known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`\n"
 							else:
-								known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`It\n"
+								known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`\n"
 					if known_alerts != "":
 						embed = discord.Embed(title="")
 						embed.color = discord.Color.blue()
@@ -746,6 +760,19 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 
+	async def undo(self, message):
+		if message.content in undo_list:
+			if int(message.author.id) in userdata["id"]:
+				for key in range(len(userdata["id"])-1, -1, -1):
+					if int(message.author.id) == userdata["id"][key]:
+						write_notification_to_log("[NOTICE]: " + message.author.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
+						del userdata["id"][key]
+						del userdata["type"][key]
+						del userdata["stock"][key]
+						del userdata["value"][key]
+						write_user_alerts()
+						return
+
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
 		if message.author == self.user:
@@ -762,6 +789,7 @@ class TornStonksLive(discord.Client):
 		await self.buy(message)
 		await self.sell(message)
 		await self.forget(message)
+		await self.undo(message)
 		await self.notifications(message)
 		await self.stop(message)
 
