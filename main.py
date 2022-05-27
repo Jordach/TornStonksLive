@@ -400,7 +400,9 @@ class TornStonksLive(discord.Client):
 				else:
 					embed = discord.Embed(title=":no_entry_sign: Unable to connect to Tornsy. :no_entry_sign:")
 					embed.color = discord.Color.red()
+					embed.add_field(name="Details:", value="Either Tornsy API is down or the timestamp provided is invalid.")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
+					return
 			if len(command) == 2:
 				for data in json_data["data"]:
 					if data["stock"] == command[1].upper():
