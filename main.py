@@ -330,7 +330,7 @@ class TornStonksLive(discord.Client):
 			# Buy event
 			elif total_shares > total_shares_m1 and data["stock"] != "TCSE":
 				if value_total >= (150 * 1000000000):
-					embed = discord.Embed(title="Large Buy In: " + data["name"] + " Bought!", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
+					embed = discord.Embed(title="Large Buy In: " + data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 					embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
 					embed.color = discord.Color.green()
 					embed.add_field(name=":handshake: Change in Shares:", value="+"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
