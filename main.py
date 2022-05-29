@@ -240,7 +240,7 @@ class TornStonksLive(discord.Client):
 		bot_started = True
 
 	def strip_commas(self, value):
-		return str(value).replace(",", "")
+		return value.replace(",", "")
 
 	async def alert_roles(self, embed, value):
 		for key in range(0, len(channels["id"])):
