@@ -763,12 +763,12 @@ class TornStonksLive(discord.Client):
 						if int(message.author.id) == userdata["id"][key]:
 							if len(command) == 3:
 								if command[1] == userdata["type"][key] and command[2] == userdata["stock"][key]:
-									known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`\n"
+									known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + "{:,.2f}".format(userdata["value"][key]) + "`\n"
 							elif len(command) == 2:
 								if command[1] == userdata["type"][key]:
-									known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`\n"
+									known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + "{:,.2f}".format(userdata["value"][key]) + "`\n"
 							else:
-								known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key]) + "`\n"
+								known_alerts = known_alerts + "`!" + userdata["type"][key] + " " + userdata["stock"][key] + " " + "{:,.2f}".format(userdata["value"][key]) + "`\n"
 					if known_alerts != "":
 						embed = discord.Embed(title="")
 						embed.color = discord.Color.blue()
