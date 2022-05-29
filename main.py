@@ -48,16 +48,17 @@ if bot_token == "":
 		file.write("")
 	raise Exception("Bot token is missing")
 
-channels = {"id":[], "small":[], "medium":[], "large":[]}
+channels = {"id":[], "small":[], "medium":[], "large":[], "prefix":[]}
 with open("channels.conf", "r") as channel_config:
 	lines = channel_config.readlines()
 	for line in lines:
-		data = line.strip().split(",", 3)
-		if len(data) == 4:
+		data = line.strip().split(",", 4)
+		if len(data) == 5:
 			channels["id"].append(int(data[0]))
 			channels["small"].append(int(data[1]))
 			channels["medium"].append(int(data[2]))
 			channels["large"].append(int(data[3]))
+			channels["prefix"].append(str(data[4]))
 		else:
 			write_notification_to_log("[WARNING] channels.conf has incorrect data, skipping the malformed line.")
 
@@ -176,40 +177,39 @@ schedule.every().minute.at(":15").do(get_latest_stocks)
 stop_run_continuously = run_continuously()
 
 # Quickly converts between name and ID
-stock_lut = [
-	"TSB",
-	"TCI",
-	"SYS",
-	"LAG",
-	"IOU",
-	"GRN",
-	"THS",
-	"YAZ",
-	"TCT",
-	"CNC",
-	"MSG",
-	"TMI",
-	"TCP",
-	"IIL",
-	"FHG",
-	"SYM",
-	"LSC",
-	"PRN",
-	"EWM",
-	"TCM",
-	"ELT",
-	"HRG",
-	"TGP",
-	"MUN",
-	"WSU",
-	"IST",
-	"BAG",
-	"EVL",
-	"MCS",
-	"WLT",
-	"TCC",
-	"ASS",
-]
+stock_lut = []
+stock_lut.append("TSB")
+stock_lut.append("TCI")
+stock_lut.append("SYS")
+stock_lut.append("LAG")
+stock_lut.append("IOU")
+stock_lut.append("GRN")
+stock_lut.append("THS")
+stock_lut.append("YAZ")
+stock_lut.append("TCT")
+stock_lut.append("CNC")
+stock_lut.append("MSG")
+stock_lut.append("TMI")
+stock_lut.append("TCP")
+stock_lut.append("IIL")
+stock_lut.append("FHG")
+stock_lut.append("SYM")
+stock_lut.append("LSC")
+stock_lut.append("PRN")
+stock_lut.append("EWM")
+stock_lut.append("TCM")
+stock_lut.append("ELT")
+stock_lut.append("HRG")
+stock_lut.append("TGP")
+stock_lut.append("MUN")
+stock_lut.append("WSU")
+stock_lut.append("IST")
+stock_lut.append("BAG")
+stock_lut.append("EVL")
+stock_lut.append("MCS")
+stock_lut.append("WLT")
+stock_lut.append("TCC")
+stock_lut.append("ASS")
 
 def lut_stock_id(name):
 	id=1
@@ -219,15 +219,18 @@ def lut_stock_id(name):
 		id+=1
 	return str(id)
 
+def get_torn_stock_data(api_key):
+	return requests.get("https://api.torn.com/user/?selections=stocks&key=" + api_key)
+
 intent = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 
 undo_list = []
-undo_list.append("!undo")
-undo_list.append("!fuck")
-undo_list.append("!f**k")
-undo_list.append("!shit")
-undo_list.append("!ohno")
-undo_list.append("!oops")
+undo_list.append("undo")
+undo_list.append("fuck")
+undo_list.append("f**k")
+undo_list.append("shit")
+undo_list.append("ohno")
+undo_list.append("oops")
 
 class TornStonksLive(discord.Client):
 	async def on_ready(self):
@@ -336,9 +339,9 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name=":handshake: Change in Shares:", value="-"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
 					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
 					if value_total >= (1000 * 1000000000):
-						embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn / 1000) + "tn)", inline=False)
+						embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,.2f}".format(value_total) + " ($" + "{:.3f}".format(price_bn / 1000) + "tn)", inline=False)
 					else:
-						embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
+						embed.add_field(name=":moneybag: Sale Info:", value="$"+"{:,.2f}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
 					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
 					client.loop.create_task(self.alert_roles(embed, value_total))
 			# Buy event
@@ -350,15 +353,15 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name=":handshake: Change in Shares:", value="+"+"{:,}".format(diff_shares) + " (" + "{:,.2f}".format(perc_shares) + "%)", inline=False)
 					embed.add_field(name=":crown: Change in Investors:", value="{:,}".format(diff_investor) + " (" + "{:,.2f}".format(perc_investor) + "%)", inline=False)
 					if value_total >= (1000 * 1000000000):
-						embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn / 1000) + "tn)", inline=False)
+						embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,.2f}".format(value_total) + " ($" + "{:.3f}".format(price_bn / 1000) + "tn)", inline=False)
 					else:
-						embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
+						embed.add_field(name=":moneybag: Purchase Info:", value="$"+"{:,.2f}".format(value_total) + " ($" + "{:.3f}".format(price_bn) + "bn)", inline=False)
 					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
 					client.loop.create_task(self.alert_roles(embed, value_total))
 
-	async def help(self, message):
-		if message.content.startswith("!help"):
-			if message.content == "!help":
+	async def help(self, message, prefix):
+		if message.content.startswith(prefix+"help"):
+			if message.content == prefix+"help":
 				embed = discord.Embed(title="https://github.com/Jordach/TornStonksLive#command-reference", url="https://github.com/Jordach/TornStonksLive#command-reference")
 				embed.color = discord.Color.purple()
 				self.set_author(message, embed)
@@ -377,8 +380,8 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name="Details:", value="The command arguments are either missing or the specified command is not found.")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def stock(self, message):
-		if message.content.startswith("!stock"):
+	async def stock(self, message, prefix):
+		if message.content.startswith(prefix+"stock"):
 			command = message.content.split(" ", 2)
 			if len(command) == 3:
 				timestamp = str(command[2].lower())
@@ -482,7 +485,7 @@ class TornStonksLive(discord.Client):
 						if data["interval"]["n1"]["investors"]:
 							investors_str = investors_str + "{:,}".format(investors_n) + " (" + "{:,.2f}".format(perc_investors_n) + "%, n1)"
 						else:
-							investors_str = investors_str + " (n1)"
+							investors_str = investors_str + investors_n + " (n1)"
 						embed.add_field(name=":crown: Investors:", value=investors_str, inline=False)
 						await message.channel.send(embed=embed, mention_author=False, reference=message)
 						return
@@ -494,8 +497,8 @@ class TornStonksLive(discord.Client):
 				embed.color = discord.Color.red()
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def alerts(self, message):
-		if message.content.startswith("!up"):
+	async def alerts(self, message, prefix):
+		if message.content.startswith(prefix+"up"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				userdata["id"].append(int(message.author.id))
@@ -512,7 +515,7 @@ class TornStonksLive(discord.Client):
 				self.set_author(message, embed)
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!up sym 123.45`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
-		elif message.content.startswith("!down"):
+		elif message.content.startswith(prefix+"down"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				userdata["id"].append(int(message.author.id))
@@ -530,8 +533,8 @@ class TornStonksLive(discord.Client):
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!down sym 123.45`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def buy(self, message):
-		if message.content.startswith("!buy"):
+	async def buy(self, message, prefix):
+		if message.content.startswith(prefix+"buy"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				command[1] = self.strip_commas(command[1])
@@ -571,8 +574,8 @@ class TornStonksLive(discord.Client):
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!buy 1000000000 iou`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def sell(self, message):
-		if message.content.startswith("!sell"):
+	async def sell(self, message, prefix):
+		if message.content.startswith(prefix+"sell"):
 			command = message.content.split(" ", 3)
 			if len(command) == 3:
 				command[1] = self.strip_commas(command[1])
@@ -609,8 +612,8 @@ class TornStonksLive(discord.Client):
 				embed.add_field(name="Details:", value="The command arguments are either missing the company or number of shares, or too few or too many arguments, try the following example:\n\n`!sell 1000000 iou`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def stop(self, message):
-		if message.content == "!stop":
+	async def stop(self, message, prefix):
+		if message.content == prefix+"stop":
 			global bot_admins
 			if int(message.author.id) in bot_admins:
 				write_user_alerts()
@@ -624,9 +627,9 @@ class TornStonksLive(discord.Client):
 				embed.add_field(name="Details:", value="You are not authorised to stop the bot.")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def forget(self, message):
-		if message.content.startswith("!forget"):
-			if message.content == "!forgetme":
+	async def forget(self, message, prefix):
+		if message.content.startswith(prefix+"forget"):
+			if message.content == prefix+"forgetme":
 				if int(message.author.id) in userdata["id"]:
 					for key in range(len(userdata["id"])-1, -1, -1):
 						if int(message.author.id) == userdata["id"][key]:
@@ -715,10 +718,10 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name="Details:", value="Missing the stock ticker. Example commands: `!forget sym` `!forget sym up` `!forget sym up 700`")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 	
-	async def notifications(self, message):
-		if message.content.startswith("!notifications") or message.content.startswith("!alerts"):
+	async def notifications(self, message, prefix):
+		if message.content.startswith(prefix+"notifications") or message.content.startswith(prefix+"alerts"):
 			command = message.content.split(" ", 3)
-			if command[0] == "!notifications" or command[0] == "!alerts":
+			if command[0] == prefix+"notifications" or command[0] == prefix+"alerts":
 				if len(command) >= 2:
 					if command[1].lower() != "up" and command[1].lower() != "down":
 						embed = discord.Embed(title=":no_entry_sign: Invalid Argument: :no_entry_sign:")
@@ -760,8 +763,15 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def undo(self, message):
-		if message.content in undo_list:
+	async def undo(self, message, prefix):
+		# Find the command in the list
+		command_found = False
+		for key in range(0, len(undo_list)):
+			if message.content.startswith(prefix+undo_list[key]):
+				command_found = True
+				break
+
+		if command_found:
 			if int(message.author.id) in userdata["id"]:
 				for key in range(len(userdata["id"])-1, -1, -1):
 					if int(message.author.id) == userdata["id"][key]:
@@ -786,26 +796,125 @@ class TornStonksLive(discord.Client):
 				embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)		
 			
+	async def portfolio(self, message, prefix):
+		# Do not allow API handling in 
+		if message.content.startswith(prefix+"portfolio"):
+			if message.guild:
+				embed = discord.Embed(title=":no_entry_sign: API handling commands not allowed in public channels. :no_entry_sign:")
+				embed.add_field(name="Details:", value="Commands that use your personal API key(s) are only allowed in Direct Messages to the bot.")
+				self.set_author(message, embed)
+				embed.color = discord.Color.red()
+				await message.channel.send(embed=embed)
+
+				user = await client.fetch_user(message.author.id)
+				await user.send("Hi, it appears you used a Torn API key command in a public channel - these commands only work here, in your Direct Messages. I'm sending this message to you so you, can try it here.\n\n Your previous command was: ```\n" + message.content + "```")
+			else:
+				command = message.content.split(" ", 4)
+				if len(command) > 1:
+					torn_req = get_torn_stock_data(command[1])
+					# Make people less paranoid
+					command[1] = "there_was_an_api_key_here_now_there_isnt"
+					if torn_req.status_code == 200:
+						torn_json = json.loads(torn_req.text)
+						if "error" in torn_json:
+							embed = discord.Embed(title="")
+							embed.color = discord.Color.red()
+							self.set_author(message, embed)
+							embed.add_field(name="Details:", value=torn_json["error"]["error"])
+							await message.channel.send(embed=embed, mention_author=False, reference=message)
+						else:
+							embed = discord.Embed(title="Torn Stock Portfolio:", url="https://www.torn.com/page.php?sid=stocks")
+							self.set_author(message, embed)
+							embed.color = discord.Color.blue()
+							# Add a thumbnail for filtered portfolios only.
+							if len(command) >= 3:
+								embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+command[2].upper()+".png")
+							if len(command) == 4:
+								if not command[3].isdigit():
+									err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+									self.set_author(message, err_embed)
+									err_embed.color = discord.Color.red()
+									err_embed.add_field(name="Details:", value="The numeric argument for number of transactions to list is not a number. Example command: `!portfolio api_key sym 1`")
+									await message.channel.send(embed=err_embed, mention_author=False, reference=message)
+									return
+							emb_value = ""
+							for stock in torn_json["stocks"]:
+								if len(command) >= 3:
+									if stock_lut[int(stock)-1] == command[2].upper():
+										index = 0
+										for data in json_data["data"]:
+											for transaction in torn_json["stocks"][stock]["transactions"]:
+												if stock_lut[int(stock)-1] == data["stock"]:
+													if len(command) == 4:
+														if index == int(command[3]):
+															break
+													price_perc = float((float(data["price"]) - torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) / torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) * 100
+													timestamp = datetime.utcfromtimestamp(int(torn_json["stocks"][stock]["transactions"][transaction]["time_bought"])).strftime('%H:%M:%S - %d/%m/%y TCT')
+													emb_value = emb_value + "**" + timestamp + ":**\n"
+													emb_value = emb_value + "Purchase Price: $" + str(torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) + ", (" + "{:,.2f}".format(price_perc) + "%)\n"
+													emb_value = emb_value + "Shares: " "{:,}".format(torn_json["stocks"][stock]["transactions"][transaction]["shares"]) + "\n\n"
+													index += 1
+								else:
+									for data in json_data["data"]:
+										for transaction in torn_json["stocks"][stock]["transactions"]:
+											if stock_lut[int(stock)-1] == data["stock"]:
+												price_perc = float((float(data["price"]) - torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) / torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) * 100
+												timestamp = datetime.utcfromtimestamp(int(torn_json["stocks"][stock]["transactions"][transaction]["time_bought"])).strftime('%H:%M:%S - %d/%m/%y TCT')
+												emb_value = emb_value + "**" + timestamp + ":**\n"
+												emb_value = emb_value + "Purchase Price: $" + str(torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) + ", (" + "{:,.2f}".format(price_perc) + "%)\n"
+												emb_value = emb_value + "Shares: " "{:,}".format(torn_json["stocks"][stock]["transactions"][transaction]["shares"]) + "\n\n"
+								for data in json_data["data"]:
+									if len(command) >= 3:
+										if stock_lut[int(stock)-1] == command[2].upper() and stock_lut[int(stock)-1] == data["stock"]:
+											embed.add_field(name=data["name"] + " ($" + str(data["price"]) + ")", value=emb_value, inline=False)
+											emb_value = ""
+									elif stock_lut[int(stock)-1] == data["stock"] and len(command) == 2:
+										embed.add_field(name=data["name"] + " ($" + str(data["price"]) + "):", value=emb_value, inline=False)
+										emb_value = ""
+							await message.channel.send(embed=embed, mention_author=False, reference=message)	
+					else:
+						print("Networking issue?")
+				else:
+					embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
+					embed.color = discord.Color.red()
+					self.set_author(message, embed)
+					embed.add_field(name="Details:", value="The command arguments are either missing the Torn API key, or too few/too many arguments, try the following example in a DM:\n\n`!portfolio API_key_here sym`")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
 		if message.author == self.user:
 			return
 
+		# Ignore noisy bots
+		if message.author.bot:
+			return
+
 		global channels
 		# Only respond in our designated channels to not shit up the place
+		# This includes DMs
 		if not int(message.channel.id) in channels["id"] and message.guild:
 			return
 		
-		await self.help(message)
-		await self.stock(message)
-		await self.alerts(message)
-		await self.buy(message)
-		await self.sell(message)
-		await self.forget(message)
-		await self.undo(message)
-		await self.notifications(message)
-		await self.stop(message)
+		# Default for DMs, but not in servers
+		cmd_prefix = "!"
+		if message.guild:
+			for key in range(0, len(channels["id"])):
+				if int(message.channel.id) == channels["id"][key]:
+					cmd_prefix = channels["prefix"][key]
+					break
+		
+		# Our command list (find a better system for this)
+		await self.help(message, cmd_prefix)
+		await self.stock(message, cmd_prefix)
+		await self.alerts(message, cmd_prefix)
+		await self.buy(message, cmd_prefix)
+		await self.sell(message, cmd_prefix)
+		await self.forget(message, cmd_prefix)
+		await self.undo(message, cmd_prefix)
+		await self.notifications(message, cmd_prefix)
+		await self.portfolio(message, cmd_prefix)
+		await self.stop(message, cmd_prefix)
 
 client = TornStonksLive(intents=intent)
 client.run(bot_token)
