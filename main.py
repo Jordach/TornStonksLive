@@ -508,10 +508,14 @@ class TornStonksLive(discord.Client):
 					userdata["value"].append(float(self.strip_commas(command[2])))
 				elif command[3] == "%":
 					perc = 1 + (float(self.strip_commas(command[2])) / 100)
+					found_stock = False
 					for data in json_data["data"]:
 						if data["stock"] == command[1].upper():
 							userdata["value"].append(float(data["price"]) * perc)
+							found_stock = True
 							break
+					if not found_stock:	
+						userdata["value"].append(0)
 				else:
 					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
 					self.set_author(message, err_embed)
@@ -538,10 +542,14 @@ class TornStonksLive(discord.Client):
 					userdata["value"].append(float(self.strip_commas(command[2])))
 				elif command[3] == "%":
 					perc = 1 + (float(self.strip_commas(command[2])) / 100)
+					found_stock = False
 					for data in json_data["data"]:
 						if data["stock"] == command[1].upper():
 							userdata["value"].append(float(data["price"]) * perc)
+							found_stock = True
 							break
+					if not found_stock:	
+						userdata["value"].append(0)
 				else:
 					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
 					self.set_author(message, err_embed)
