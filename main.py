@@ -500,14 +500,15 @@ class TornStonksLive(discord.Client):
 	async def alerts(self, message, prefix):
 		if message.content.startswith(prefix+"up"):
 			command = message.content.split(" ", 3)
+			command[2] = self.strip_commas(command[2])
 			if len(command) >= 3 and command[2].isdigit():
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("up")
 				userdata["stock"].append(command[1].lower())
 				if len(command) == 3:
-					userdata["value"].append(float(self.strip_commas(command[2])))
+					userdata["value"].append(float(command[2]))
 				elif command[3] == "%":
-					perc = 1 + (float(self.strip_commas(command[2])) / 100)
+					perc = 1 + (float(command[2]) / 100)
 					found_stock = False
 					for data in json_data["data"]:
 						if data["stock"] == command[1].upper():
@@ -520,6 +521,7 @@ class TornStonksLive(discord.Client):
 					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
 					self.set_author(message, err_embed)
 					err_embed.add_field(name="Details:", value="Percentage agument is not a percent sign `%`. Example command: `!up sym 1.5 %`")
+					userdata["value"].append(0)
 					await message.channel.send(embed=err_embed, mention_author=False, reference=message)
 					return
 				write_user_alerts()
@@ -534,14 +536,15 @@ class TornStonksLive(discord.Client):
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 		elif message.content.startswith(prefix+"down"):
 			command = message.content.split(" ", 3)
+			command[2] = self.strip_commas(command[2])
 			if len(command) >= 3 and command[2].isdigit():
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("down")
 				userdata["stock"].append(command[1].lower())
 				if len(command) == 3:
-					userdata["value"].append(float(self.strip_commas(command[2])))
+					userdata["value"].append(float(command[2]))
 				elif command[3] == "%":
-					perc = 1 + (float(self.strip_commas(command[2])) / 100)
+					perc = 1 + (float(command[2]) / 100)
 					found_stock = False
 					for data in json_data["data"]:
 						if data["stock"] == command[1].upper():
@@ -554,6 +557,7 @@ class TornStonksLive(discord.Client):
 					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
 					self.set_author(message, err_embed)
 					err_embed.add_field(name="Details:", value="Percentage agument is not a percent sign `%`. Example command: `!up sym 1.5 %`")
+					userdata["value"].append(0)
 					await message.channel.send(embed=err_embed, mention_author=False, reference=message)
 					return
 				write_user_alerts()
