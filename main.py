@@ -500,8 +500,17 @@ class TornStonksLive(discord.Client):
 	async def alerts(self, message, prefix):
 		if message.content.startswith(prefix+"up"):
 			command = message.content.split(" ", 3)
-			command[2] = str(self.strip_commas(command[2]))
-			if len(command) >= 3 and isinstance(command[2], (str, float)):
+			try:
+				command[2] = float(self.strip_commas(command[2]))
+			except:
+				err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+				err_embed.color = discord.Color.red()
+				self.set_author(message, err_embed)
+				err_embed.add_field(name="Details:", value="Numeric argument contains non numeric characters. Example command: `!up sym 150.53` or `!up sym 1 %`")
+				userdata["value"].append(0)
+				await message.channel.send(embed=err_embed, mention_author=False, reference=message)
+				return
+			if len(command) >= 3 and isinstance(command[2], float):
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("up")
 				userdata["stock"].append(command[1].lower())
@@ -519,6 +528,7 @@ class TornStonksLive(discord.Client):
 						userdata["value"].append(0)
 				else:
 					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+					err_embed.color = discord.Color.red()
 					self.set_author(message, err_embed)
 					err_embed.add_field(name="Details:", value="Percentage agument is not a percent sign `%`. Example command: `!up sym 1.5 %`")
 					userdata["value"].append(0)
@@ -536,8 +546,17 @@ class TornStonksLive(discord.Client):
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 		elif message.content.startswith(prefix+"down"):
 			command = message.content.split(" ", 3)
-			command[2] = str(self.strip_commas(command[2]))
-			if len(command) >= 3 and isinstance(command[2], (str, float)):
+			try:
+				command[2] = float(self.strip_commas(command[2]))
+			except:
+				err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+				err_embed.color = discord.Color.red()
+				self.set_author(message, err_embed)
+				err_embed.add_field(name="Details:", value="Numeric argument contains non numeric characters. Example command: `!down sym 750.53` or `!down sym -1 %`")
+				userdata["value"].append(0)
+				await message.channel.send(embed=err_embed, mention_author=False, reference=message)
+				return
+			if len(command) >= 3 and isinstance(command[2], (int, float)):
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("down")
 				userdata["stock"].append(command[1].lower())
@@ -555,6 +574,7 @@ class TornStonksLive(discord.Client):
 						userdata["value"].append(0)
 				else:
 					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+					err_embed.color = discord.Color.red()
 					self.set_author(message, err_embed)
 					err_embed.add_field(name="Details:", value="Percentage agument is not a percent sign `%`. Example command: `!up sym 1.5 %`")
 					userdata["value"].append(0)
@@ -814,7 +834,7 @@ class TornStonksLive(discord.Client):
 				for key in range(len(userdata["id"])-1, -1, -1):
 					if int(message.author.id) == userdata["id"][key]:
 						write_notification_to_log("[NOTICE]: " + message.author.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
-						notice = "!"+userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key])
+						notice = "!"+userdata["type"][key] + " " + userdata["stock"][key] + " " + "{:,.2f}".format(userdata["value"][key])
 						del userdata["id"][key]
 						del userdata["type"][key]
 						del userdata["stock"][key]
@@ -825,15 +845,15 @@ class TornStonksLive(discord.Client):
 						self.set_author(message, embed)
 						# Please note this emoji only works on the offical bot;
 						# Will find a way to replace this line with one of your choosing
-						embed.add_field(name="Mistake Erased.",  value="Try not to make a mess of the channel history next time. <:thonk:721869856508477460>")
-						embed.add_field(name="Command Undone:", value=notice)
+						embed.add_field(name="Mistake Erased.",  value="Try not to make a mess of the channel history next time. <:thonk:721869856508477460>", inline=False)
+						embed.add_field(name="Command Undone:", value="```"+notice+"```", inline=False)
 						await message.channel.send(embed=embed, mention_author=False, reference=message)
 						return
 			else:
 				embed = discord.Embed(title="")
 				embed.color = discord.Color.dark_green()
 				self.set_author(message, embed)
-				embed.add_field(name="No Notifications Pending!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
+				embed.add_field(name="Nothing to Undo!", value="Thank you for using TornStonks Live; have a nice day. :wave:")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)		
 			
 	async def portfolio(self, message, prefix):
@@ -921,6 +941,23 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name="Details:", value="The command arguments are either missing the Torn API key, or too few/too many arguments, try the following example in a DM:\n\n`!portfolio API_key_here sym`")
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 
+	async def credits(self, message, prefix):
+		if message.content == prefix+"credits":
+			thanks_str = ""
+			with open("thanks.md", "r") as thanks:
+				lines = thanks.readlines()
+				for line in lines:
+					thanks_str = thanks_str + line
+
+			thanks_str = thanks_str + "\n\nThank you truly, for using TornStonks Live! :thumbsup:"
+
+			embed = discord.Embed(title="")
+			embed.color = discord.Color.purple()
+			self.set_author(message, embed)
+			embed.add_field(name="Many Thanks To:", value=thanks_str)
+
+			await message.channel.send(embed=embed, mention_author=False, reference=message)
+
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
 		if message.author == self.user:
@@ -954,6 +991,7 @@ class TornStonksLive(discord.Client):
 		await self.undo(message, cmd_prefix)
 		await self.notifications(message, cmd_prefix)
 		await self.portfolio(message, cmd_prefix)
+		await self.credits(message, cmd_prefix)
 		await self.stop(message, cmd_prefix)
 
 client = TornStonksLive(intents=intent)
