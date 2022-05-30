@@ -500,8 +500,8 @@ class TornStonksLive(discord.Client):
 	async def alerts(self, message, prefix):
 		if message.content.startswith(prefix+"up"):
 			command = message.content.split(" ", 3)
-			command[2] = self.strip_commas(command[2])
-			if len(command) >= 3 and command[2].isdigit():
+			command[2] = str(self.strip_commas(command[2]))
+			if len(command) >= 3 and isinstance(command[2], (str, float)):
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("up")
 				userdata["stock"].append(command[1].lower())
@@ -532,12 +532,12 @@ class TornStonksLive(discord.Client):
 				embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
 				embed.color = discord.Color.red()
 				self.set_author(message, embed)
-				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!up sym 123.45` or `!up sym 1 %`")
+				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few/too many arguments, try the following example:\n\n`!up sym 123.45` or `!up sym 1 %`")
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 		elif message.content.startswith(prefix+"down"):
 			command = message.content.split(" ", 3)
-			command[2] = self.strip_commas(command[2])
-			if len(command) >= 3 and command[2].isdigit():
+			command[2] = str(self.strip_commas(command[2]))
+			if len(command) >= 3 and isinstance(command[2], (str, float)):
 				userdata["id"].append(int(message.author.id))
 				userdata["type"].append("down")
 				userdata["stock"].append(command[1].lower())
