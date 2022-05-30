@@ -814,6 +814,7 @@ class TornStonksLive(discord.Client):
 				for key in range(len(userdata["id"])-1, -1, -1):
 					if int(message.author.id) == userdata["id"][key]:
 						write_notification_to_log("[NOTICE]: " + message.author.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
+						notice = "!"+userdata["type"][key] + " " + userdata["stock"][key] + " " + str(userdata["value"][key])
 						del userdata["id"][key]
 						del userdata["type"][key]
 						del userdata["stock"][key]
@@ -825,6 +826,7 @@ class TornStonksLive(discord.Client):
 						# Please note this emoji only works on the offical bot;
 						# Will find a way to replace this line with one of your choosing
 						embed.add_field(name="Mistake Erased.",  value="Try not to make a mess of the channel history next time. <:thonk:721869856508477460>")
+						embed.add_field(name="Command Undone:", value=notice)
 						await message.channel.send(embed=embed, mention_author=False, reference=message)
 						return
 			else:
