@@ -9,3 +9,9 @@ For finding bugs.
 
 **merdog [322510]:**
 For graciously donating $30m.
+
+**Theory [2190956]:**
+For graciously donating $50m.
+
+**Happwy [2683992]:**
+For graciously donating 5x Xanax.
