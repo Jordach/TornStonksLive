@@ -1,3 +1,4 @@
+from sqlite3 import enable_shared_cache
 import requests
 import json
 import schedule
@@ -7,10 +8,12 @@ import pprint
 import os
 import numpy as np
 import pandas as pd
+import random
 from datetime import datetime, date, timezone
+from sklearn.metrics import label_ranking_average_precision_score
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.linear_model import LinearRegression
-from sklearn.svm import SVR
+from sklearn.linear_model import LinearRegression, Ridge, ElasticNet, Lasso
+from sklearn.svm import SVR, LinearSVR
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import discord
@@ -35,6 +38,7 @@ def write_notification_to_log(log_text):
 		if len(contents) > 0:
 			file.write("\n")
 		file.write(time_string+log_text)
+		print(time_string+log_text)
 
 notstonks_png = "https://cdn.discordapp.com/attachments/315121916199305218/976306803900022814/tornnotstonks.png"
 stonks_png = "https://cdn.discordapp.com/attachments/315121916199305218/976306804176863293/tornstonks.png"
@@ -55,17 +59,19 @@ if bot_token == "":
 		file.write("")
 	raise Exception("Bot token is missing")
 
-channels = {"id":[], "small":[], "medium":[], "large":[], "prefix":[]}
+channels = {"id":[], "small":[], "medium":[], "large":[], "prefix":[], "alerts":[], "predict":[]}
 with open("channels.conf", "r") as channel_config:
 	lines = channel_config.readlines()
 	for line in lines:
-		data = line.strip().split(",", 4)
-		if len(data) == 5:
+		data = line.strip().split(",", 6)
+		if len(data) == 7:
 			channels["id"].append(int(data[0]))
 			channels["small"].append(int(data[1]))
 			channels["medium"].append(int(data[2]))
 			channels["large"].append(int(data[3]))
 			channels["prefix"].append(str(data[4]))
+			channels["alerts"].append(str(data[5]))
+			channels["predict"].append(str(data[6]))
 		else:
 			write_notification_to_log("[WARNING] channels.conf has incorrect data, skipping the malformed line.")
 
@@ -73,6 +79,21 @@ if len(channels["id"]) == 0:
 	with open("channels.conf", "w") as file:
 		file.write("")
 	raise Exception("No channels to send/receive messages to - channels.conf created.")
+
+graph_channels = {"id":[]}
+with open("graph_channels.conf", "r") as graph_config:
+	lines = graph_config.readlines()
+	for line in lines:
+		data = line.strip().split(",")
+		if len(data) == 1:
+			graph_channels["id"].append(int(data[0]))
+		else:
+			write_notification_to_log("[WARNING] graph_channels.confg has incorrect data, skipping the malformed line.")
+
+if len(graph_channels["id"]) == 0:
+	with open("graph_channels.conf", "w") as file:
+		file.write("")
+	raise Exception("No channels to send automated analysis to - graph_channels.conf created.")
 
 bot_admins = []
 with open("admins.conf", "r") as admin_config:
@@ -179,7 +200,7 @@ def get_latest_stocks():
 # Get initial data
 get_latest_stocks()
 
-# Initiate background thread
+# Initiate background thread and jobs
 schedule.every().minute.at(":15").do(get_latest_stocks)
 stop_run_continuously = run_continuously()
 
@@ -230,20 +251,21 @@ def lut_stock_id(name):
 def get_torn_stock_data(api_key):
 	return requests.get("https://api.torn.com/user/?selections=stocks&key=" + api_key)
 
-valid_ohlc_times = []
-valid_ohlc_times.append("m1")
-valid_ohlc_times.append("m5")
-valid_ohlc_times.append("m15")
-valid_ohlc_times.append("m30")
-valid_ohlc_times.append("h1")
-valid_ohlc_times.append("h2")
-valid_ohlc_times.append("h4")
-valid_ohlc_times.append("h6")
-valid_ohlc_times.append("h12")
-valid_ohlc_times.append("d1")
-valid_ohlc_times.append("w1")
-valid_ohlc_times.append("n1")
-valid_ohlc_times.append("y1")
+valid_ohlc_times = [
+	"m1",
+	"m5",
+	"m15",
+	"m30",
+	"h1",
+	"h2",
+	"h4",
+	"h6",
+	"h12",
+	"d1",
+	"w1",
+	"n1",
+	"y1",
+]
 
 def get_tornsy_candlesticks(ticker, interval, limit):
 	ohlc_address = "https://tornsy.com/api/" + ticker + "?interval=" + interval + "&limit=" + limit
@@ -255,37 +277,42 @@ def get_tornsy_candlesticks(ticker, interval, limit):
 	else:
 		return False
 
-def predict_stocks(ticker, interval, forecast):
-	# Prevent non OHLC data from getting used
-	if interval == "m1":
-		return
-
+def predict_stocks(ticker, interval, forecast, render_graphs):
 	# Translate between Tornsy's data and ML compliant formats;
-	ohlc_data = get_tornsy_candlesticks(ticker, interval, "1000")
+	ohlc_data = get_tornsy_candlesticks(ticker, interval, "2000")
 	if not ohlc_data:
 		return
 	
 	dt = {"date":[], "open":[], "high":[], "low":[], "close":[]}
 	
-	for item in range(0, len(ohlc_data["data"])):
-		dt["date"].append(datetime.utcfromtimestamp(int(ohlc_data["data"][item][0])).strftime('%H:%M:%S %d/%m/%y'))
-		dt["open"].append(float(ohlc_data["data"][item][1]))
-		dt["high"].append(float(ohlc_data["data"][item][2]))
-		dt["low"].append(float(ohlc_data["data"][item][3]))
-		dt["close"].append(float(ohlc_data["data"][item][4]))
+	if interval == "m1":
+		for item in ohlc_data["data"]:
+			dt["date"].append(datetime.utcfromtimestamp(int(item[0])).strftime('%H:%M:%S %d/%m/%y'))
+			dt["open"].append(float(item[1]))
+			dt["high"].append(float(item[1]))
+			dt["low"].append(float(item[1]))
+			dt["close"].append(float(item[1]))
+	else:
+		for item in range(0, len(ohlc_data["data"])):
+			dt["date"].append(datetime.utcfromtimestamp(int(ohlc_data["data"][item][0])).strftime('%H:%M:%S %d/%m/%y'))
+			dt["open"].append(float(ohlc_data["data"][item][1]))
+			dt["high"].append(float(ohlc_data["data"][item][2]))
+			dt["low"].append(float(ohlc_data["data"][item][3]))
+			dt["close"].append(float(ohlc_data["data"][item][4]))
 
 	df = pd.DataFrame(data=dt)
 	df = df[["close"]]
-	df["prediction"] = df[["close"]].shift(-forecast)
+	df["prediction"] = df[["close"]].shift(-(forecast+1))
 
 	x = np.array(df.drop(["prediction"], axis=1))
-	x = x[:-forecast]
+	x = x[:-(forecast+1)]
 	
 	y = np.array(df["prediction"])
-	y = y[:-forecast]
+	y = y[:-(forecast+1)]
 	
 	x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
 
+	# Train and setup prediction engines
 	svr_rbf = SVR(kernel='rbf', C=1e3, gamma=0.1) 
 	svr_rbf.fit(x_train, y_train)
 	svm_confidence = svr_rbf.score(x_test, y_test)
@@ -294,10 +321,15 @@ def predict_stocks(ticker, interval, forecast):
 	lr.fit(x_train, y_train)
 	lr_confidence = lr.score(x_test, y_test)
 
-	x_forecast = np.array(df.drop(["prediction"], axis=1))[-forecast:]
+	svr_l = LinearSVR(max_iter=12000, loss="squared_epsilon_insensitive", C=4.2, dual=False)
+	svr_l.fit(x_train, y_train)
+	svr_l_confidence = svr_l.score(x_test, y_test)
+
+	x_forecast = np.array(df.drop(["prediction"], axis=1))[-(forecast+1):]
 	svm_prediction = svr_rbf.predict(x_forecast)
 	lr_prediction = lr.predict(x_forecast)
-	avg_prediction = []
+	svm_l_prediction = svr_l.predict(x_forecast)
+	avg_confidence = (svm_confidence + lr_confidence + svr_l_confidence) / 3
 	
 	price = 0
 	name = ""
@@ -310,15 +342,96 @@ def predict_stocks(ticker, interval, forecast):
 	# Pull prices downwards to fix mysterious invalid prices
 	diff_svm = svm_prediction[0] - price
 	diff_lr = lr_prediction[0] - price
+	diff_svml = svm_l_prediction[0] - price
+
+	# High, Low, average, confidence
+	hlvc = {}
+	hlvc["ticker"] = ticker
+	hlvc["svm"] = {}
+	hlvc["svm"]["high"] = 0
+	hlvc["svm"]["low"] = 10000
+	hlvc["svm"]["volatility"] = 0
+	hlvc["svm"]["actual"] = 0
+	hlvc["svm"]["confidence"] = svm_confidence
+
+	hlvc["lr"] = {}
+	hlvc["lr"]["high"] = 0
+	hlvc["lr"]["low"] = 10000
+	hlvc["lr"]["volatility"] = 0
+	hlvc["lr"]["actual"] = 0
+	hlvc["lr"]["confidence"] = lr_confidence
+
+	hlvc["svml"] = {}
+	hlvc["svml"]["high"] = 0
+	hlvc["svml"]["low"] = 10000
+	hlvc["svml"]["volatility"] = 0
+	hlvc["svml"]["actual"] = 0
+	hlvc["svml"]["confidence"] = svr_l_confidence
+
+	hlvc["avg"] = {}
+	hlvc["avg"]["high"] = 0
+	hlvc["avg"]["low"] = 10000
+	hlvc["avg"]["volatility"] = 0
+	hlvc["avg"]["actual"] = 0
+	hlvc["avg"]["confidence"] = avg_confidence
+
+	avg_prediction = []
+	# Post process and normalise values
 	for key in range(0, len(svm_prediction)):
 		svm_prediction[key] -= diff_svm
 		lr_prediction[key] -= diff_lr
-		avg = float(svm_prediction[key] + lr_prediction[key]) / 2
+		svm_l_prediction[key] -= diff_svml
+		avg = float(svm_prediction[key] + lr_prediction[key] + svm_l_prediction[key]) / 3
 		avg_prediction.append(avg)
 
-	svm_prediction = np.insert(svm_prediction, 0, price)
-	lr_prediction = np.insert(lr_prediction, 0, price)
-	avg_prediction.insert(0, price)
+		# Find highs and lows for all predicts, including the average:
+		svm = svm_prediction[key]
+		if svm > hlvc["svm"]["high"]:
+			hlvc["svm"]["high"] = svm
+		if svm < hlvc["svm"]["low"]:
+			hlvc["svm"]["low"] = svm
+		perc = abs(float((price - svm) / svm) * 100)
+		aperc = float((price - svm) / svm) * 100
+		if perc > hlvc["svm"]["volatility"]:
+			hlvc["svm"]["volatility"] = perc
+			hlvc["svm"]["actual"] = aperc
+		
+		lr = lr_prediction[key]
+		if lr > hlvc["lr"]["high"]:
+			hlvc["lr"]["high"] = lr
+		if lr < hlvc["lr"]["low"]:
+			hlvc["lr"]["low"] = lr
+		perc = abs(float((price - lr) / lr) * 100)
+		aperc = float((price - lr) / lr) * 100
+		if perc > hlvc["lr"]["volatility"]:
+			hlvc["lr"]["volatility"] = perc
+			hlvc["lr"]["actual"] = aperc
+
+		svml = svm_l_prediction[key]
+		if svml > hlvc["svml"]["high"]:
+			hlvc["svml"]["high"] = svml
+		if svml < hlvc["svml"]["low"]:
+			hlvc["svml"]["low"] = svml
+		perc = abs(float((price - svml) / svml) * 100)
+		aperc = float((price - svml) / svml) * 100
+		if perc > hlvc["svml"]["volatility"]:
+			hlvc["svml"]["volatility"] = perc
+			hlvc["svml"]["actual"] = aperc
+
+		if avg > hlvc["avg"]["high"]:
+			hlvc["avg"]["high"] = avg
+		if avg < hlvc["avg"]["low"]:
+			hlvc["avg"]["low"] = avg
+		perc = abs(float((price - avg) / avg) * 100)
+		aperc = float((price - avg) / avg) * 100
+		if perc > hlvc["avg"]["volatility"]:
+			hlvc["avg"]["volatility"] = perc
+			hlvc["avg"]["actual"] = aperc
+
+	# svm_prediction = np.insert(svm_prediction, 0, price)
+	# lr_prediction = np.insert(lr_prediction, 0, price)
+	# svm_l_prediction = np.insert(svm_l_prediction, 0, price)
+	# avg_prediction.insert(0, price)
 
 	# Figure out timestamps
 	period = int(int ( ''.join(filter(str.isdigit, interval) ) ))
@@ -338,35 +451,41 @@ def predict_stocks(ticker, interval, forecast):
 			period_ticks.append(datetime.utcfromtimestamp(current_time + int(((26355200 * (period * forecast)) / 9) * i)).strftime('%H:%M:%S %d/%m/%y'))
 		elif interval[0] == "y":
 			period_ticks.append(datetime.utcfromtimestamp(current_time + int(((31536000 * (period * forecast)) / 9) * i)).strftime('%H:%M:%S %d/%m/%y'))
-
-	# Make x-axis timestamps not suck
-	xticks = []
-	xticks.append(0)
-	for i in range(1, 9):
-		xticks.append(float(forecast / 8) * i)
-
-	plt.style.use("ggplot")
-	fig, ax = plt.subplots()
-	ax.plot(svm_prediction, linewidth=12, alpha=0.1, color="red")
-	ax.plot(lr_prediction, linewidth=12, alpha=0.1, color="blue")
-	ax.plot(avg_prediction, linewidth=12, alpha=0.1, color="green")
-	ax.plot(svm_prediction, label="Predicted (SVM)", linewidth=1.5, color="red")
-	ax.plot(lr_prediction, label="Predicted (LR)", linewidth=1.5, color="blue")
-	ax.plot(avg_prediction, label="Predicted (Average)", linewidth=1.5, color="green")
-	plt.title(name + " Price Prediction (" + interval + ")")
-	ax.yaxis.set_major_formatter('${x:1.2f}')
-	ax.set_xticks(xticks)
-	ax.set_xticklabels(period_ticks)
-	plt.xticks(rotation=45, horizontalalignment="right")
-	plt.legend()
-	plt.tight_layout()
-	plt.grid(color = 'black', linestyle = '--', linewidth = 0.5)
-	if not os.path.isdir(os.getcwd()+"/graphs"):
-		os.mkdir(os.getcwd()+"/graphs")
-
+	# Set PNG file name
 	file = os.getcwd()+"/graphs/"+ticker+" "+interval+" "+str(forecast)+" "+str(period_ticks[0].replace("/", "-").replace(":", "-")+".png")
-	plt.savefig(file)
-	return [file, svm_confidence, lr_confidence, name, period_ticks[0], period_ticks[8]]
+	
+	# Render the PNG graph
+	if render_graphs:
+		# Make x-axis timestamps not suck
+		xticks = []
+		xticks.append(0)
+		for i in range(1, 9):
+			xticks.append(float(forecast / 8) * i)
+
+		plt.style.use("ggplot")
+		fig, ax = plt.subplots()
+		ax.plot(svm_prediction, linewidth=12, alpha=0.1, color="red")
+		ax.plot(lr_prediction, linewidth=12, alpha=0.1, color="blue")
+		ax.plot(svm_l_prediction, linewidth=12, alpha=0.1, color="purple")
+		ax.plot(avg_prediction, linewidth=12, alpha=0.1, color="green")
+		ax.plot(svm_prediction, label="Predicted (SVM)", alpha=0.3, linewidth=1.5, color="red")
+		ax.plot(svm_l_prediction, label="Predicted (SVM Linear)", alpha=0.3, linewidth=1.5, color="purple")
+		ax.plot(lr_prediction, label="Predicted (LR)", alpha=0.3, linewidth=1.5, color="blue")
+		ax.plot(avg_prediction, label="Predicted (Average)", linewidth=1.5, color="green")
+		plt.title(name + " Price Prediction (" + interval + ")")
+		ax.yaxis.set_major_formatter('${x:1.2f}')
+		ax.set_xticks(xticks)
+		ax.set_xticklabels(period_ticks)
+		plt.xticks(rotation=45, horizontalalignment="right")
+		plt.legend()
+		plt.tight_layout()
+		plt.grid(color = 'black', linestyle = '--', linewidth = 0.5)
+		if not os.path.isdir(os.getcwd()+"/graphs"):
+			os.mkdir(os.getcwd()+"/graphs")
+
+		plt.savefig(file)
+		plt.close()
+	return [file, hlvc, name, period_ticks]
 
 intent = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 
@@ -395,17 +514,98 @@ class TornStonksLive(discord.Client):
 		elif type == "sell":
 			tag_type = "[SELL] "
 		
+		tick = "[" + ticker + "]"
+		write_notification_to_log(tag_type + tick + ": $" + "{:,.3f}".format(value/1000000000) + "bn")
+		channel = await client.fetch_channel(channels["id"][key])
+		sml = "<@&"+str(channels["small"][key])+">"
+		med = "<@&"+str(channels["medium"][key])+">"
+		lrg = "<@&"+str(channels["large"][key])+">"
 		for key in range(0, len(channels["id"])):
-			channel = await client.fetch_channel(channels["id"][key])
-			sml = "<@&"+str(channels["small"][key])+">"
-			med = "<@&"+str(channels["medium"][key])+">"
-			lrg = "<@&"+str(channels["large"][key])+">"
-			if value >= (750 * 1000000000):
-				await channel.send(sml + ", " + med + ", " + lrg + " - " + tag_type + "[" + ticker + "]", embed=embed)
-			elif value >= (450 * 1000000000):
-				await channel.send(sml + ", " + med + " - " + tag_type + "[" + ticker + "]", embed=embed)
-			else:
-				await channel.send(sml + " - " + tag_type + "[" + ticker + "]", embed=embed)
+			if channels["alerts"][key] == "alerts":
+				if value >= (750 * 1000000000):
+					await channel.send(sml + ", " + med + ", " + lrg + " - " + tag_type + tick, embed=embed)
+				elif value >= (450 * 1000000000):
+					await channel.send(sml + ", " + med + " - " + tag_type + tick, embed=embed)
+				else:
+					await channel.send(sml + " - " + tag_type + tick, embed=embed)
+
+	async def post_recommendations(self, up, down, stoch):
+		current_time = int(datetime.now(timezone.utc).timestamp()) + 14400
+		time = datetime.utcfromtimestamp(current_time).strftime('%H:%M:%S - %d/%m/%y')
+
+		for data in json_data["data"]:
+			if up["ticker"].upper() == data["stock"]:
+				up_name = data["name"] + ", $" + data["price"]
+			if down["ticker"].upper() == data["stock"]:
+				down_name = data["name"] + ", $" + data["price"]
+			if stoch["ticker"].upper() == data["stock"]:
+				stoch_name = data["name"] + ", $" + data["price"]
+
+		embed = discord.Embed(title="Suggested Stock Picks:", description="Valid Until: **" + time + " TCT**")
+		embed.set_footer(text="Suggestions are picked from 80% or higher confidence predictions, but use them as a starting point for investing.")
+		embed.set_thumbnail(url=stonks_png)
+		embed.color = discord.Color.blue()
+		
+		embed.add_field(name="Stock Predicted For Gains For:", value=up_name, inline=False)
+		up_high = "SVM: **$" + "{:.2f}".format(up["svm"]["high"]) + "**\n"
+		up_high = up_high + "SVML: **$" + "{:.2f}".format(up["svml"]["high"]) + "**\n"
+		up_high = up_high + "LR: **$" + "{:.2f}".format(up["lr"]["high"]) + "**\n"
+		up_high = up_high + "Avg: **$" + "{:.2f}".format(up["avg"]["high"]) + "**\n"
+		embed.add_field(name="High:", value=up_high, inline=True)
+		
+		up_low = "SVM: **$" + "{:.2f}".format(up["svm"]["low"]) + "**\n"
+		up_low = up_low + "SVML: **$" + "{:.2f}".format(up["svml"]["low"]) + "**\n"
+		up_low = up_low + "LR: **$" + "{:.2f}".format(up["lr"]["low"]) + "**\n"
+		up_low = up_low + "Avg: **$" + "{:.2f}".format(up["avg"]["low"]) + "**\n"
+		embed.add_field(name="Low:", value=up_low, inline=True)
+
+		up_vola = "SVM: **" + "{:.2f}".format(up["svm"]["actual"]) + "%**\n"
+		up_vola = up_vola + "SVML: **" + "{:.2f}".format(up["svml"]["actual"]) + "%**\n"
+		up_vola = up_vola + "LR: **" + "{:.2f}".format(up["lr"]["actual"]) + "%**\n"
+		up_vola = up_vola + "Avg: **" + "{:.2f}".format(up["avg"]["actual"]) + "%**\n"
+		embed.add_field(name="Volatility:", value=up_vola, inline=True)
+		
+		embed.add_field(name="Stock Predicted For Losses For:", value=down_name, inline=False)
+		down_high = "SVM: **$" + "{:.2f}".format(down["svm"]["high"]) + "**\n"
+		down_high = down_high + "SVML: **$" + "{:.2f}".format(down["svml"]["high"]) + "**\n"
+		down_high = down_high + "LR: **$" + "{:.2f}".format(down["lr"]["high"]) + "**\n"
+		down_high = down_high + "Avg: **$" + "{:.2f}".format(down["avg"]["high"]) + "**\n"
+		embed.add_field(name="High:", value=down_high, inline=True)
+
+		down_low = "SVM: **$" + "{:.2f}".format(down["svm"]["low"]) + "**\n"
+		down_low = down_low + "SVML: **$" + "{:.2f}".format(down["svml"]["low"]) + "**\n"
+		down_low = down_low + "LR: **$" + "{:.2f}".format(down["lr"]["low"]) + "**\n"
+		down_low = down_low + "Avg: **$" + "{:.2f}".format(down["avg"]["low"]) + "**\n"
+		embed.add_field(name="Low:", value=down_low, inline=True)
+		
+		down_vola = "SVM: **" + "{:.2f}".format(down["svm"]["actual"]) + "%**\n"
+		down_vola = down_vola + "SVML: **" + "{:.2f}".format(down["svml"]["actual"]) + "%**\n"
+		down_vola = down_vola + "LR: **" + "{:.2f}".format(down["lr"]["actual"]) + "%**\n"
+		down_vola = down_vola + "Avg: **" + "{:.2f}".format(down["avg"]["actual"]) + "%**\n"
+		embed.add_field(name="Volatility:", value=down_vola, inline=True)
+		
+		embed.add_field(name="Random Stock Pick:", value=stoch_name, inline=False)
+		stoch_high = "SVM: **$" + "{:.2f}".format(stoch["svm"]["high"]) + "**\n"
+		stoch_high = stoch_high + "SVML: **$" + "{:.2f}".format(stoch["svml"]["high"]) + "**\n"
+		stoch_high = stoch_high + "LR: **$" + "{:.2f}".format(stoch["lr"]["high"]) + "**\n"
+		stoch_high = stoch_high + "Avg: **$" + "{:.2f}".format(stoch["avg"]["high"]) + "**\n"
+		embed.add_field(name="High:", value=stoch_high, inline=True)
+
+		stoch_low = "SVM: **$" + "{:.2f}".format(stoch["svm"]["low"]) + "**\n"
+		stoch_low = stoch_low + "SVML: **$" + "{:.2f}".format(stoch["svml"]["low"]) + "**\n"
+		stoch_low = stoch_low + "LR: **$" + "{:.2f}".format(stoch["lr"]["low"]) + "**\n"
+		stoch_low = stoch_low + "Avg: **$" + "{:.2f}".format(stoch["avg"]["low"]) + "**\n"
+		embed.add_field(name="Low:", value=stoch_low, inline=True)
+
+		stoch_vola = "SVM: **" + "{:.2f}".format(stoch["svm"]["actual"]) + "%**\n"
+		stoch_vola = stoch_vola + "SVML: **" + "{:.2f}".format(stoch["svml"]["actual"]) + "%**\n"
+		stoch_vola = stoch_vola + "LR: **" + "{:.2f}".format(stoch["lr"]["actual"]) + "%**\n"
+		stoch_vola = stoch_vola + "Avg: **" + "{:.2f}".format(stoch["avg"]["actual"]) + "%**\n"
+		embed.add_field(name="Volatility:", value=stoch_vola, inline=True)
+
+		for key in range(0, len(graph_channels["id"])):
+			channel = await client.fetch_channel(graph_channels["id"][key])
+			await channel.send(embed=embed)
 
 	def set_author(self, message, embed):
 		if message.author.avatar:
@@ -425,7 +625,6 @@ class TornStonksLive(discord.Client):
 		global stonks_png
 		if type == "up":
 			embed = discord.Embed(title=data["name"] + " Above Target Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(stock)+"&tab=owned")
-			embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+stock+".png")
 			embed.color = discord.Color.orange()
 			embed.add_field(name="Stonks!", value=data["name"] + " has reached or exceeded your target price of: $" + "{:,}".format(value) + ".")
 			embed.set_thumbnail(url=stonks_png)
@@ -434,10 +633,17 @@ class TornStonksLive(discord.Client):
 			await user.send(embed=embed)
 		elif type == "down":
 			embed = discord.Embed(title=data["name"] + " Below Target Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(stock)+"&tab=owned")
-			embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+stock+".png")
 			embed.color = discord.Color.orange()
 			embed.add_field(name="Stonks!", value=data["name"] + " has reached or fallen under your target price of: $" + "{:,}".format(value) + ".")
 			embed.set_thumbnail(url=stonks_png)
+			user = await self.fetch_user(id)
+			self.set_author_notif(user, embed)
+			await user.send(embed=embed)
+		elif type == "loss":
+			embed = discord.Embed(title=data["name"] + " Below Stop Loss Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(stock)+"&tab=owned")
+			embed.color = discord.Color.red()
+			embed.add_field(name="Not Stonks!", value=data["name"] + " has reached or fallen below your stop loss price of: $" + "{:,}".format(value) + ".")
+			embed.set_thumbnail(url=notstonks_png)
 			user = await self.fetch_user(id)
 			self.set_author_notif(user, embed)
 			await user.send(embed=embed)
@@ -458,6 +664,11 @@ class TornStonksLive(discord.Client):
 						if float(data["price"]) <= userdata["value"][item]:
 							client.loop.create_task(self.alert_user(item, userdata["id"][item], userdata["type"][item], userdata["stock"][item], userdata["value"][item], data))
 							remove_entries.append(item)
+					elif userdata["type"][item] == "loss":
+						if float(data["price"]) <= userdata["value"][item]:
+							client.loop.create_task(self.alert_user(item, userdata["id"][item], userdata["type"][item], userdata["stock"][item], userdata["value"][item], data))
+							remove_entries.append(item)
+
 			# Don't bother removing entries when there's no real need to
 			if len(remove_entries) > 0:
 				for key in range(len(userdata["id"])-1, -1, -1):
@@ -511,6 +722,73 @@ class TornStonksLive(discord.Client):
 					embed.add_field(name=":money_with_wings: Share Price:", value="$"+str(data["price"]), inline=False)
 					client.loop.create_task(self.alert_roles(embed, value_total, "buy", data["stock"]))
 
+	def process_suggestions(self):
+		stock_data = {}
+		for i in range(len(stock_lut)):
+			ticker = stock_lut[i].lower()
+			data = predict_stocks(ticker, "m5", 48, False)
+			hlvc = data[1]
+
+			# Only add stocks that pass this criteria
+			if hlvc["svm"]["confidence"] >= 0.8 or hlvc["lr"]["confidence"] >= 0.8 or hlvc["svml"]["confidence"] >= 0.8:
+				stock_data[ticker] = data[1]
+
+		# Find the top three of each
+		stocks = [*stock_data.keys()]
+		up_tick = ""
+		down_tick = ""
+		up = 0
+		down = 0
+		for k in range(len(stocks)):
+			ticker = stocks[k]
+
+			svm = stock_data[ticker]["svm"]["actual"]
+			lr = stock_data[ticker]["lr"]["actual"]
+			svml = stock_data[ticker]["svml"]["actual"]
+			avg = stock_data[ticker]["avg"]["actual"]
+
+			if svm > up:
+				up = svm
+				up_tick = ticker
+			elif lr > up:
+				up = lr
+				up_tick = ticker
+			elif svml > up:
+				up = svml
+				up_tick = ticker
+			elif avg > up:
+				up = avg
+				up_tick = ticker			
+
+			if svm < down:
+				down = svm
+				down_tick = ticker
+			elif lr < down:
+				down = lr
+				down_tick = ticker
+			elif svml < down:
+				down = svml
+				down_tick = ticker
+			elif avg < down:
+				down = avg
+				down_tick = ticker
+
+		best_up = stock_data[up_tick]
+		best_down = stock_data[down_tick]
+		
+		# Remove old entries from the list 
+		if up_tick in stock_data:
+			del stock_data[up_tick]
+		if down_tick in stock_data:
+			del stock_data[down_tick]
+
+		# Pick a random stock to ensure a less apparent bias
+		stocks = [*stock_data.keys()]
+		stoch_tick = stocks[random.randint(0, len(stocks))]
+		stoch_stock = stock_data[stoch_tick]
+
+		client.loop.create_task(self.post_recommendations(best_up, best_down, stoch_stock))
+		
 	async def help(self, message, prefix):
 		if message.content.startswith(prefix+"help"):
 			if message.content == prefix+"help":
@@ -650,101 +928,93 @@ class TornStonksLive(discord.Client):
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 
 	async def alerts(self, message, prefix):
-		if message.content.startswith(prefix+"up"):
-			command = message.content.split(" ", 3)
-			try:
-				command[2] = float(command[2])
-			except:
-				err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				err_embed.color = discord.Color.red()
-				self.set_author(message, err_embed)
-				err_embed.add_field(name="Details:", value="Numeric argument contains non numeric characters. Example command: `!up sym 150.53` or `!up sym 1 %`")
-				userdata["value"].append(0)
-				await message.channel.send(embed=err_embed, mention_author=False, reference=message)
-				return
-			if len(command) >= 3 and isinstance(command[2], float):
-				userdata["id"].append(int(message.author.id))
-				userdata["type"].append("up")
-				userdata["stock"].append(command[1].lower())
-				if len(command) == 3:
-					userdata["value"].append(float(command[2]))
-					write_user_alerts()
-				elif command[3] == "%":
-					perc = 1 + (float(command[2]) / 100)
-					found_stock = False
-					for data in json_data["data"]:
-						if data["stock"] == command[1].upper():
-							userdata["value"].append(float(data["price"]) * perc)
-							found_stock = True
-							break
-					if not found_stock:	
-						userdata["value"].append(0)
-					write_user_alerts()
-				else:
-					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-					err_embed.color = discord.Color.red()
-					self.set_author(message, err_embed)
-					err_embed.add_field(name="Details:", value="Percentage agument is not a percent sign `%`. Example command: `!up sym 1.5 %`")
-					userdata["value"].append(0)
-					await message.channel.send(embed=err_embed, mention_author=False, reference=message)
-					return
+		if message.content.startswith(prefix+"up") or message.content.startswith(prefix+"down") or message.content.startswith(prefix+"loss"):
+			command = message.content.split(" ")
 
-				embed = discord.Embed(title=":white_check_mark: Will send you a DM when the criteria is reached. :white_check_mark:")
-				embed.color = discord.Color.dark_green()
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
-			else:
-				embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
-				embed.color = discord.Color.red()
-				self.set_author(message, embed)
-				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few/too many arguments, try the following example:\n\n`!up sym 123.45` or `!up sym 1 %`")
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
-		elif message.content.startswith(prefix+"down"):
-			command = message.content.split(" ", 3)
-			try:
-				command[2] = float(command[2])
-			except:
+			# Check our command entry since we also use that to note the type of alert
+			command[0] = str(command[0]).replace(prefix, "")
+			types = ["up", "down", "loss"]
+			if command[0] not in types and len(command) >= 1:
 				err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
 				err_embed.color = discord.Color.red()
 				self.set_author(message, err_embed)
-				err_embed.add_field(name="Details:", value="Numeric argument contains non numeric characters. Example command: `!down sym 750.53` or `!down sym -1 %`")
-				userdata["value"].append(0)
+				err_embed.add_field(name="Details:", value="Invalid command. Example command: `![up/down/loss] sym 150.53` or `![up/down/loss] sym 1%`")
 				await message.channel.send(embed=err_embed, mention_author=False, reference=message)
 				return
-			if len(command) >= 3 and isinstance(command[2], (int, float)):
-				userdata["id"].append(int(message.author.id))
-				userdata["type"].append("down")
-				userdata["stock"].append(command[1].lower())
-				if len(command) == 3:
-					userdata["value"].append(float(command[2]))
-					write_user_alerts()
-				elif command[3] == "%":
-					perc = 1 + (float(command[2]) / 100)
-					found_stock = False
-					for data in json_data["data"]:
-						if data["stock"] == command[1].upper():
-							userdata["value"].append(float(data["price"]) * perc)
-							found_stock = True
-							break
-					if not found_stock:	
-						userdata["value"].append(0)
-					write_user_alerts()
+
+			# Argument length check
+			if len(command) < 3:
+				err_embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
+				err_embed.color = discord.Color.red()
+				self.set_author(message, err_embed)
+				err_embed.add_field(name="Details:", value="Not enough arguments. Example command: `![up/down/loss] sym 150.53` or `![up/down/loss] sym 1%`")
+				await message.channel.send(embed=err_embed, mention_author=False, reference=message)
+				return
+
+			# Check if the stock exists;
+			if command[1].upper() not in stock_lut:
+				err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+				err_embed.color = discord.Color.red()
+				self.set_author(message, err_embed)
+				err_embed.add_field(name="Details:", value="Stock ticker not found. Example command: `![up/down/loss] sym 150.53` or `![up/down/loss] sym 1%`")
+				await message.channel.send(embed=err_embed, mention_author=False, reference=message)
+				return
+
+			# Process whether we're a price to reach or a percentage
+			is_percentage = False
+			if "%" not in command[2]:
+				try:
+					command[2] = float(command[2])
+				except:
+					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+					err_embed.color = discord.Color.red()
+					self.set_author(message, err_embed)
+					err_embed.add_field(name="Details:", value="Numeric argument contains non numeric characters. Example command: `![up/down/loss] sym 150.53` or `![up/down/loss] sym 1%`")
+					await message.channel.send(embed=err_embed, mention_author=False, reference=message)
+					return
+			else:
+				command[2] = str(command[2]).replace("%", "")
+				try:
+					is_percentage = True
+					command[2] = float(command[2])
+				except:
+					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+					err_embed.color = discord.Color.red()
+					self.set_author(message, err_embed)
+					err_embed.add_field(name="Details:", value="Numeric argument contains non numeric characters. Example command: `![up/down/loss] sym 150.53` or `![up/down/loss] sym 1%`")
+					await message.channel.send(embed=err_embed, mention_author=False, reference=message)
+					return
+			
+			# Process if we have four arguments and the previous value isn't containing a percentage sign
+			# We can fail softly since it's not needed
+			if len(command) >= 4 and not is_percentage:
+				if command[3] == "%":
+					is_percentage = True
 				else:
 					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
 					err_embed.color = discord.Color.red()
 					self.set_author(message, err_embed)
-					err_embed.add_field(name="Details:", value="Percentage agument is not a percent sign `%`. Example command: `!up sym 1.5 %`")
-					userdata["value"].append(0)
+					err_embed.add_field(name="Details:", value="Percentage sign not found. Example command: `![up/down/loss] sym 150.53` or `![up/down/loss] sym 1%`")
 					await message.channel.send(embed=err_embed, mention_author=False, reference=message)
 					return
-				embed = discord.Embed(title=":white_check_mark: Will send you a DM when the criteria is reached. :white_check_mark:")
-				embed.color = discord.Color.dark_green()
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
+			
+			# Since we passed input validation - add the entry and save to disk:
+			userdata["id"].append(int(message.author.id))
+			userdata["type"].append(command[0].lower())
+			userdata["stock"].append(command[1].lower())
+			if is_percentage:
+				for data in json_data["data"]:
+					if data["stock"] == command[1].upper():
+						userdata["value"].append(float(data["price"]) * (1 + (command[2] / 100)))
+						break
 			else:
-				embed = discord.Embed(title=":no_entry_sign: Invalid Command :no_entry_sign:")
-				embed.color = discord.Color.red()
-				self.set_author(message, embed)
-				embed.add_field(name="Details:", value="The command arguments are either missing the company or value, or too few or too many arguments, try the following example:\n\n`!down sym 123.45` or !down sym -1 %`")
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				userdata["value"].append(command[2])
+			write_user_alerts()
+
+			embed = discord.Embed(title=":white_check_mark: Will send you a DM when the criteria is reached. :white_check_mark:")
+			embed.color = discord.Color.dark_green()
+			self.set_author(message, embed)
+			await message.channel.send(embed=embed, mention_author=False, reference=message)
 
 	async def buy(self, message, prefix):
 		if message.content.startswith(prefix+"buy"):
@@ -870,11 +1140,12 @@ class TornStonksLive(discord.Client):
 				if c_len > 1:
 					# Anti idiot security
 					if c_len >= 3:
-						if command[2].lower() != "up" and command[2].lower() != "down":
+						known_types = ["up", "down", "loss"]
+						if command[2].lower() not in known_types:
 							embed = discord.Embed(title=":no_entry_sign: Invalid Argument: :no_entry_sign:")
 							embed.color = discord.Color.red()
 							self.set_author(message, embed)
-							embed.add_field(name="Details:", value='Command argument after stock ticker must be exactly "up" or "down".')
+							embed.add_field(name="Details:", value='Command argument after stock ticker must be "up", "down" or "loss".')
 							await message.channel.send(embed=embed, mention_author=False, reference=message)
 							return
 						
@@ -1219,6 +1490,16 @@ class TornStonksLive(discord.Client):
 		if message.content.startswith(prefix+"predict"):
 			command = message.content.split(" ")
 
+			for key in range(0, len(channels["id"])):
+				if int(message.channel.id) == channels["id"][key]:
+					if channels["predict"][key] == "dm" and int(message.author.id) not in bot_admins:
+						embed = discord.Embed(title=":no_entry_sign: Not Allowed In This Channel :no_entry_sign:")
+						embed.add_field(name="Details:", value="Prediction discussion must be relegated to it's own channel, or in Direct Messages.")
+						self.set_author(message, embed)
+						embed.color = discord.Color.red()
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+						return
+
 			if len(command) != 4:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
 				embed.add_field(name="Details:", value="Too few arguments. Example command:\n```!predict sym d1 31```")
@@ -1238,36 +1519,109 @@ class TornStonksLive(discord.Client):
 			ohlc_time = str(command[2].lower())
 			if ohlc_time not in valid_ohlc_times:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				embed.add_field(name="Details:", value="Specified time period is not supported. Supported intervals:\n`m5 m15 m30 h1 h2 h4 h6 h12 d1 w1 n1 y1`")
+				embed.add_field(name="Details:", value="Specified time period is not supported. Supported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1 w1`")
 				self.set_author(message, embed)
 				embed.color = discord.Color.red()
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 				return
-			elif ohlc_time == "m1":
+			elif ohlc_time == "n1" or ohlc_time == "y1":
 				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				embed.add_field(name="Details:", value="m1 time period is **currently** not supported. Supported intervals:\n`m5 m15 m30 h1 h2 h4 h6 h12 d1 w1 n1 y1`")
+				embed.add_field(name="Details:", value="Specified time period is **currently** not supported. Supported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1 w1`")
 				self.set_author(message, embed)
 				embed.color = discord.Color.red()
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 				return
 
-			if not command[3].isdigit():
+			try:
+				command[3] = int(command[3])
+			except:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				embed.add_field(name="The multiples of your specified time period is not a number.")
+				embed.add_field(name="Details:", value="The multiples of your specified time period is not a number.")
 				self.set_author(message, embed)
 				embed.color = discord.Color.red()
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
 
-			graph_return = predict_stocks(command[1].lower(), command[2].lower(), int(command[3]))
-			embed = discord.Embed(title="Predictions For " + graph_return[3], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(test_lut)+"&tab=owned")
+			# TODO: Allow the command to turn graphs on and off
+			graph_return = ""
+			try:
+				graph_return = predict_stocks(command[1].lower(), command[2].lower(), int(command[3]), True)
+			except:
+				write_notification_to_log("[ERROR] PREDICT ERROR: " + message.content)
+				err_embed = discord.Embed(title="PREDICT ERROR:")
+				err_embed.set_thumbnail(url=notstonks_png)
+				self.set_author(message, err_embed)
+				err_embed.add_field(name="Details:", value="Something went wrong with generating prediction data.\nCommand used:\n\n```" + message.content + "```")
+				embed.color = discord.Color.red()
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
+			hlvc = graph_return[1]
+			ticks = graph_return[3]
+
+			embed = discord.Embed(title="Predictions For " + graph_return[2], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(test_lut)+"&tab=owned")
 			embed.color = discord.Color.blue()
-			embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+command[1].lower()+".png")
+			embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+command[1].upper()+".png")
 			self.set_author(message, embed)
-			embed.add_field(name="Confidence:", value="SVM Confidence: " + "{:.2f}".format(graph_return[1] * 100) + "%\nLR Confidence: " + "{:.2f}".format(graph_return[2] * 100) + "%", inline=False)
-			embed.add_field(name="Time Scale:", value="From: **"+graph_return[4] + " TCT**\nTo: **" + graph_return[5] + " TCT**")
+
+			high_str = "SVM: **$" + "{:.2f}".format(hlvc["svm"]["high"]) + "**\n"
+			high_str = high_str + "SVML: **$" + "{:.2f}".format(hlvc["svml"]["high"]) + "**\n"
+			high_str = high_str + "LR: **$" + "{:.2f}".format(hlvc["lr"]["high"]) + "**\n"
+			high_str = high_str + "Avg: **$" + "{:.2f}".format(hlvc["avg"]["high"]) + "**"
+			embed.add_field(name="High:", value=high_str)
+			low_str = "SVM: **$" + "{:.2f}".format(hlvc["svm"]["low"]) + "**\n"
+			low_str = low_str + "SVML: **$" + "{:.2f}".format(hlvc["svml"]["low"]) + "**\n"
+			low_str = low_str + "LR: **$" + "{:.2f}".format(hlvc["lr"]["low"]) + "**\n"
+			low_str = low_str + "Avg: **$" + "{:.2f}".format(hlvc["avg"]["low"]) + "**"
+			embed.add_field(name="Low:", value=low_str)
+			vola_str = "SVM: ±**" + "{:.2f}".format(hlvc["svm"]["volatility"]) + "%**\n"
+			vola_str = vola_str + "SVML: ±**" + "{:.2f}".format(hlvc["svml"]["volatility"]) + "%**\n"
+			vola_str = vola_str + "LR: ±**" + "{:.2f}".format(hlvc["lr"]["volatility"]) + "%**\n"
+			vola_str = vola_str + "Avg: ±**" + "{:.2f}".format(hlvc["avg"]["volatility"]) + "%**\n"
+			embed.add_field(name="Volatility:", value=vola_str)
+			conf_str = "SVM: **" + "{:.2f}".format(hlvc["svm"]["confidence"] * 100) + "%**"
+			if hlvc["svm"]["confidence"] * 100 < 35:
+				conf_str = conf_str + " :warning:"
+			conf_str = conf_str + "\n"
+			conf_str = conf_str + "SVML: **" + "{:.2f}".format(hlvc["svml"]["confidence"] * 100) + "%**"
+			if hlvc["svml"]["confidence"] * 100 < 35:
+				conf_str = conf_str + " :warning:"
+			conf_str = conf_str + "\n"
+			conf_str = conf_str + "LR: **" + "{:.2f}".format(hlvc["lr"]["confidence"] * 100) + "%**"
+			if hlvc["lr"]["confidence"] * 100 < 35:
+				conf_str = conf_str + " :warning:"
+			conf_str = conf_str + "\n"
+			conf_str = conf_str + "Avg: **" + "{:.2f}".format(hlvc["avg"]["confidence"] * 100) + "%**"
+			if hlvc["avg"]["confidence"] * 100 < 35:
+				conf_str = conf_str + " :warning:"
+			embed.add_field(name="Confidence:", value=conf_str)
+			embed.add_field(name="Time Scale:", value="From: **"+ticks[0] + " TCT**\nTo: **" + ticks[8] + " TCT**")
 			embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely it's predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.", inline=False)
 			await message.channel.send(embed=embed, mention_author=False, reference=message)
 			await message.channel.send(file=discord.File(graph_return[0]))
+
+	async def testimonial(self, message, prefix):
+		if message.content == prefix+"testimonials":
+			thanks_str = ""
+			with open("thanks.md", "r") as thanks:
+				lines = thanks.readlines()
+				for line in lines:
+					thanks_str = thanks_str + line
+
+			embed = discord.Embed(title="")
+			embed.color = discord.Color.purple()
+			self.set_author(message, embed)
+			embed.add_field(name="Many Thanks To:", value=thanks_str)
+
+			await message.channel.send(embed=embed, mention_author=False, reference=message)
+
+	def test_suggestions(self, message, prefix):
+		if message.content == prefix+"suggest":
+			global bot_admins
+			if int(message.author.id) in bot_admins:
+				print("will make suggestions")
+				self.process_suggestions()
+			else:
+				print("will not make suggestions")
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
@@ -1305,8 +1659,26 @@ class TornStonksLive(discord.Client):
 		await self.credits(message, cmd_prefix)
 		await self.sma(message, cmd_prefix)
 		await self.predict(message, cmd_prefix)
+		#await self.testimonial(message, cmd_prefix)
+		#self.test_suggestions(message, cmd_prefix)
 		await self.stop(message, cmd_prefix)
 
 client = TornStonksLive(intents=intent)
 client.run(bot_token)
+
+def process_suggests():
+	try:
+		TornStonksLive.process_suggestions(client)
+	except:
+		write_notification_to_log("[WARNING] Potential problem with suggestion predictions.")
+
+enable_suggestions = True
+if enable_suggestions:
+	schedule.every().day.at("01:00:20").do(process_suggests)
+	schedule.every().day.at("05:00:20").do(process_suggests)
+	schedule.every().day.at("09:00:20").do(process_suggests)
+	schedule.every().day.at("13:00:20").do(process_suggests)
+	schedule.every().day.at("19:00:20").do(process_suggests)
+	schedule.every().day.at("21:00:20").do(process_suggests)
+
 write_notification_to_log("[STARTUP] " + app_name + " started.")

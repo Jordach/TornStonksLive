@@ -118,6 +118,16 @@ Lists all transactions for the specified ticker.
 
 Lists `number_of_transactions` of the selected stock before stopping. If you have two or more transactions, and use a it'll show the most recent transaction.
 
+## Credits:
+
+`!credits`
+
+Lists what's contains in `thanks.md`.
+
+## SMA:
+
+`!sma`
+
 # Administration Commands:
 ## Stop Command:
 

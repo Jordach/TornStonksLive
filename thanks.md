@@ -11,7 +11,13 @@ For finding bugs.
 For graciously donating $30m.
 
 **Theory [2190956]:**
-For graciously donating $50m.
+For graciously donating $70m.
 
 **Happwy [2683992]:**
 For graciously donating 5x Xanax.
+
+**Patchwork [977198]:**
+For graciously donating $100m.
+
+**PannenKoek [607891]:**
+For graciously donating $100m.
