@@ -965,8 +965,8 @@ class TornStonksLive(discord.Client):
 		for i in range(len(stock_lut)):
 			ticker = stock_lut[i].lower()
 			try:
-				ohlc = get_tornsy_candlesticks(ticker, "m30", "1")
-				volatility = abs((float(ohlc["data"][0][3]) - float(ohlc["data"][0][2])) / float(ohlc["data"][0][2])) * 100
+				ohlc = get_tornsy_candlesticks(ticker, "m30", "2")
+				volatility = abs((float(ohlc["data"][1][3]) - float(ohlc["data"][1][2])) / float(ohlc["data"][1][2])) * 100
 				if volatility >= 0.25:
 					stock_data.append((ticker, volatility))
 			except:
