@@ -135,3 +135,10 @@ graph_channels.conf
 admins.conf
 userdata.csv
 /graphs
+
+# No syncing of prediction data
+# for saving states during power loss,
+# OS crashes etc
+best_gain.json
+best_loss.json
+best_rand.json

@@ -1,3 +1,4 @@
+from msilib.schema import Error
 from sqlite3 import enable_shared_cache
 import requests
 import json
@@ -55,7 +56,7 @@ with open("settings.conf", "r") as system_config:
 			break
 
 if bot_token == "":
-	with open() as file:
+	with open("settings.conf") as file:
 		file.write("")
 	raise Exception("Bot token is missing")
 
@@ -154,7 +155,12 @@ def write_user_alerts():
 pp = pprint.PrettyPrinter(indent=4)
 
 tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
-tornsy_data = requests.get(tornsy_api_address)
+tornsy_data =""
+try:
+	tornsy_data = requests.get(tornsy_api_address)
+except:
+	raise Exception("Tornsy probably timed out.")
+
 
 # Nicked from https://schedule.readthedocs.io/en/stable/background-execution.html
 # But I don't think many will actually care.
@@ -199,10 +205,6 @@ def get_latest_stocks():
 
 # Get initial data
 get_latest_stocks()
-
-# Initiate background thread and jobs
-schedule.every().minute.at(":15").do(get_latest_stocks)
-stop_run_continuously = run_continuously()
 
 # Quickly converts between name and ID
 stock_lut = [
@@ -271,7 +273,7 @@ def get_tornsy_candlesticks(ticker, interval, limit):
 	ohlc_address = "https://tornsy.com/api/" + ticker + "?interval=" + interval + "&limit=" + limit
 	ohlc_req = requests.get(ohlc_address)
 
-	if tornsy_data.status_code == 200:
+	if ohlc_req.status_code == 200:
 		ohlc_data = json.loads(ohlc_req.text)
 		return ohlc_data
 	else:
@@ -346,6 +348,7 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 
 	# High, Low, average, confidence
 	hlvc = {}
+	hlvc["price"] = price
 	hlvc["ticker"] = ticker
 	hlvc["svm"] = {}
 	hlvc["svm"]["high"] = 0
@@ -391,7 +394,7 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 		if svm < hlvc["svm"]["low"]:
 			hlvc["svm"]["low"] = svm
 		perc = abs(float((price - svm) / svm) * 100)
-		aperc = float((price - svm) / svm) * 100
+		aperc = float((price - svm) / svm) * -100
 		if perc > hlvc["svm"]["volatility"]:
 			hlvc["svm"]["volatility"] = perc
 			hlvc["svm"]["actual"] = aperc
@@ -402,7 +405,7 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 		if lr < hlvc["lr"]["low"]:
 			hlvc["lr"]["low"] = lr
 		perc = abs(float((price - lr) / lr) * 100)
-		aperc = float((price - lr) / lr) * 100
+		aperc = float((price - lr) / lr) * -100
 		if perc > hlvc["lr"]["volatility"]:
 			hlvc["lr"]["volatility"] = perc
 			hlvc["lr"]["actual"] = aperc
@@ -413,7 +416,7 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 		if svml < hlvc["svml"]["low"]:
 			hlvc["svml"]["low"] = svml
 		perc = abs(float((price - svml) / svml) * 100)
-		aperc = float((price - svml) / svml) * 100
+		aperc = float((price - svml) / svml) * -100
 		if perc > hlvc["svml"]["volatility"]:
 			hlvc["svml"]["volatility"] = perc
 			hlvc["svml"]["actual"] = aperc
@@ -423,7 +426,7 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 		if avg < hlvc["avg"]["low"]:
 			hlvc["avg"]["low"] = avg
 		perc = abs(float((price - avg) / avg) * 100)
-		aperc = float((price - avg) / avg) * 100
+		aperc = float((price - avg) / avg) * -100
 		if perc > hlvc["avg"]["volatility"]:
 			hlvc["avg"]["volatility"] = perc
 			hlvc["avg"]["actual"] = aperc
@@ -468,11 +471,11 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 		ax.plot(lr_prediction, linewidth=12, alpha=0.1, color="blue")
 		ax.plot(svm_l_prediction, linewidth=12, alpha=0.1, color="purple")
 		ax.plot(avg_prediction, linewidth=12, alpha=0.1, color="green")
-		ax.plot(svm_prediction, label="Predicted (SVM)", alpha=0.3, linewidth=1.5, color="red")
-		ax.plot(svm_l_prediction, label="Predicted (SVM Linear)", alpha=0.3, linewidth=1.5, color="purple")
-		ax.plot(lr_prediction, label="Predicted (LR)", alpha=0.3, linewidth=1.5, color="blue")
-		ax.plot(avg_prediction, label="Predicted (Average)", linewidth=1.5, color="green")
-		plt.title(name + " Price Prediction (" + interval + ")")
+		ax.plot(svm_prediction, label="SVM", alpha=0.3, linewidth=1.5, color="red")
+		ax.plot(lr_prediction, label="LR", alpha=0.3, linewidth=1.5, color="blue")
+		ax.plot(svm_l_prediction, label="SVM Linear", alpha=0.3, linewidth=1.5, color="purple")
+		ax.plot(avg_prediction, label="Average", linewidth=1.5, color="green")
+		plt.title(name + " Price Prediction (" + interval + ", " + str(forecast) + ")")
 		ax.yaxis.set_major_formatter('${x:1.2f}')
 		ax.set_xticks(xticks)
 		ax.set_xticklabels(period_ticks)
@@ -497,12 +500,81 @@ undo_list.append("shit")
 undo_list.append("ohno")
 undo_list.append("oops")
 
+def check_volatility():
+	if bot_started:
+		try:
+			TornStonksLive.process_volatility(client)
+		except:
+			write_notification_to_log("[WARNING] Potential problem with volatiltity checks.")
+
+def suggests():
+	if bot_started:
+		try:
+			TornStonksLive.process_suggestions(client)
+		except:
+			write_notification_to_log("[WARNING] Potential problem with suggestion predictions.")
+
+# Initiate background thread and jobs
+enable_suggestions = True
+if enable_suggestions:
+	schedule.every().day.at("01:00:20").do(suggests)
+	schedule.every().day.at("05:00:20").do(suggests)
+	schedule.every().day.at("09:00:20").do(suggests)
+	schedule.every().day.at("13:00:20").do(suggests)
+	schedule.every().day.at("17:00:20").do(suggests)
+	schedule.every().day.at("21:00:20").do(suggests)
+
+enable_volatility = True
+if enable_volatility:
+	schedule.every().hour.at("00:30").do(check_volatility)
+	schedule.every().hour.at("30:30").do(check_volatility)
+
+schedule.every().minute.at(":15").do(get_latest_stocks)
+stop_run_continuously = run_continuously()
+
+best_gain = ""
+if os.path.exists("best_gain.json"):
+	with open("best_gain.json") as file:
+		best_gain = json.load(file)
+else:
+	write_notification_to_log("[WARNING] best_gain.json not found - ignoring")
+
+best_loss = ""
+if os.path.exists("best_loss.json"):
+	with open("best_loss.json") as file:
+		best_loss = json.load(file)
+else:
+	write_notification_to_log("[WARNING] best_loss.json not found - ignoring")
+
+best_rand = ""
+if os.path.exists("best_rand.json"):
+	with open("best_rand.json") as file:
+		best_rand = json.load(file)
+else:
+	write_notification_to_log("[WARNING] best_rand.json not found - ignoring")
+not_more = False
+last_pred_id = []
+
 class TornStonksLive(discord.Client):
 	async def on_ready(self):
-		print("Bot logged on as {0}!".format(self.user))
+		#print("Bot logged on as {0}!".format(self.user))
 		await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Torn City Stocks"))
 		global bot_started
 		bot_started = True
+
+		for key in range(0, len(graph_channels["id"])):
+			channel = await client.fetch_channel(graph_channels["id"][key])
+			pred_message = await channel.history(limit=1).flatten()
+			three = "3️⃣"
+			global not_more
+			if pred_message[0].reactions[0] == three:
+				not_more = True
+			else:
+				not_more = False
+			global last_pred_id
+			last_pred_id = []
+			last_pred_id.append(pred_message[0])
+		write_notification_to_log("[STARTUP] " + app_name + " started.")
 
 	def strip_commas(self, value):
 		return value.replace(",", "")
@@ -516,12 +588,12 @@ class TornStonksLive(discord.Client):
 		
 		tick = "[" + ticker + "]"
 		write_notification_to_log(tag_type + tick + ": $" + "{:,.3f}".format(value/1000000000) + "bn")
-		channel = await client.fetch_channel(channels["id"][key])
-		sml = "<@&"+str(channels["small"][key])+">"
-		med = "<@&"+str(channels["medium"][key])+">"
-		lrg = "<@&"+str(channels["large"][key])+">"
 		for key in range(0, len(channels["id"])):
 			if channels["alerts"][key] == "alerts":
+				channel = await client.fetch_channel(channels["id"][key])
+				sml = "<@&"+str(channels["small"][key])+">"
+				med = "<@&"+str(channels["medium"][key])+">"
+				lrg = "<@&"+str(channels["large"][key])+">"
 				if value >= (750 * 1000000000):
 					await channel.send(sml + ", " + med + ", " + lrg + " - " + tag_type + tick, embed=embed)
 				elif value >= (450 * 1000000000):
@@ -546,7 +618,7 @@ class TornStonksLive(discord.Client):
 		embed.set_thumbnail(url=stonks_png)
 		embed.color = discord.Color.blue()
 		
-		embed.add_field(name="Stock Predicted For Gains For:", value=up_name, inline=False)
+		embed.add_field(name=":one: Stock Predicted For Gains For:", value=up_name, inline=False)
 		up_high = "SVM: **$" + "{:.2f}".format(up["svm"]["high"]) + "**\n"
 		up_high = up_high + "SVML: **$" + "{:.2f}".format(up["svml"]["high"]) + "**\n"
 		up_high = up_high + "LR: **$" + "{:.2f}".format(up["lr"]["high"]) + "**\n"
@@ -565,7 +637,7 @@ class TornStonksLive(discord.Client):
 		up_vola = up_vola + "Avg: **" + "{:.2f}".format(up["avg"]["actual"]) + "%**\n"
 		embed.add_field(name="Volatility:", value=up_vola, inline=True)
 		
-		embed.add_field(name="Stock Predicted For Losses For:", value=down_name, inline=False)
+		embed.add_field(name=":two: Stock Predicted For Losses For:", value=down_name, inline=False)
 		down_high = "SVM: **$" + "{:.2f}".format(down["svm"]["high"]) + "**\n"
 		down_high = down_high + "SVML: **$" + "{:.2f}".format(down["svml"]["high"]) + "**\n"
 		down_high = down_high + "LR: **$" + "{:.2f}".format(down["lr"]["high"]) + "**\n"
@@ -584,7 +656,7 @@ class TornStonksLive(discord.Client):
 		down_vola = down_vola + "Avg: **" + "{:.2f}".format(down["avg"]["actual"]) + "%**\n"
 		embed.add_field(name="Volatility:", value=down_vola, inline=True)
 		
-		embed.add_field(name="Random Stock Pick:", value=stoch_name, inline=False)
+		embed.add_field(name=":three: Random Stock Pick:", value=stoch_name, inline=False)
 		stoch_high = "SVM: **$" + "{:.2f}".format(stoch["svm"]["high"]) + "**\n"
 		stoch_high = stoch_high + "SVML: **$" + "{:.2f}".format(stoch["svml"]["high"]) + "**\n"
 		stoch_high = stoch_high + "LR: **$" + "{:.2f}".format(stoch["lr"]["high"]) + "**\n"
@@ -603,9 +675,78 @@ class TornStonksLive(discord.Client):
 		stoch_vola = stoch_vola + "Avg: **" + "{:.2f}".format(stoch["avg"]["actual"]) + "%**\n"
 		embed.add_field(name="Volatility:", value=stoch_vola, inline=True)
 
+		global last_pred_id
+		last_pred_id = []
 		for key in range(0, len(graph_channels["id"])):
 			channel = await client.fetch_channel(graph_channels["id"][key])
-			await channel.send(embed=embed)
+			last_pred_id.append(await channel.send(embed=embed))
+			await last_pred_id[key].add_reaction("1️⃣")
+			await last_pred_id[key].add_reaction("2️⃣")
+			await last_pred_id[key].add_reaction("3️⃣")
+
+	async def post_single_recommendation(self, stoch):
+		current_time = int(datetime.now(timezone.utc).timestamp()) + 14400
+		time = datetime.utcfromtimestamp(current_time).strftime('%H:%M:%S - %d/%m/%y')
+
+		for data in json_data["data"]:
+			if stoch["ticker"].upper() == data["stock"]:
+				stoch_name = data["name"] + ", $" + data["price"]
+
+		embed = discord.Embed(title="Suggested Stock Picks:", description="Valid Until: **" + time + " TCT**")
+		embed.set_footer(text="Suggestions are picked from 80% or higher confidence predictions, but use them as a starting point for investing.")
+		embed.set_thumbnail(url=stonks_png)
+		embed.color = discord.Color.blue()
+		embed.add_field(name="Notice:", value="Due to a lack of suitable values - only random is available.")	
+	
+		embed.add_field(name=":three: Random Stock Pick:", value=stoch_name, inline=False)
+		stoch_high = "SVM: **$" + "{:.2f}".format(stoch["svm"]["high"]) + "**\n"
+		stoch_high = stoch_high + "SVML: **$" + "{:.2f}".format(stoch["svml"]["high"]) + "**\n"
+		stoch_high = stoch_high + "LR: **$" + "{:.2f}".format(stoch["lr"]["high"]) + "**\n"
+		stoch_high = stoch_high + "Avg: **$" + "{:.2f}".format(stoch["avg"]["high"]) + "**\n"
+		embed.add_field(name="High:", value=stoch_high, inline=True)
+
+		stoch_low = "SVM: **$" + "{:.2f}".format(stoch["svm"]["low"]) + "**\n"
+		stoch_low = stoch_low + "SVML: **$" + "{:.2f}".format(stoch["svml"]["low"]) + "**\n"
+		stoch_low = stoch_low + "LR: **$" + "{:.2f}".format(stoch["lr"]["low"]) + "**\n"
+		stoch_low = stoch_low + "Avg: **$" + "{:.2f}".format(stoch["avg"]["low"]) + "**\n"
+		embed.add_field(name="Low:", value=stoch_low, inline=True)
+
+		stoch_vola = "SVM: **" + "{:.2f}".format(stoch["svm"]["actual"]) + "%**\n"
+		stoch_vola = stoch_vola + "SVML: **" + "{:.2f}".format(stoch["svml"]["actual"]) + "%**\n"
+		stoch_vola = stoch_vola + "LR: **" + "{:.2f}".format(stoch["lr"]["actual"]) + "%**\n"
+		stoch_vola = stoch_vola + "Avg: **" + "{:.2f}".format(stoch["avg"]["actual"]) + "%**\n"
+		embed.add_field(name="Volatility:", value=stoch_vola, inline=True)
+
+		global last_pred_id
+		last_pred_id = []
+		for key in range(0, len(graph_channels["id"])):
+			channel = await client.fetch_channel(graph_channels["id"][key])
+			last_pred_id.append(await channel.send(embed=embed))
+			await last_pred_id[key].add_reaction("3️⃣")
+	
+	async def post_volatility(self, stocks):
+		current_time = int(datetime.now(timezone.utc).timestamp())
+		last_m30 = current_time - (60 * 30)
+		time = datetime.utcfromtimestamp(last_m30).strftime('%H:%M:%S - %d/%m/%y') + " TCT"
+		embed = discord.Embed(title="Stocks Over 0.25% Volatility:")
+		embed_str = ""
+		for i in range(len(stocks)):
+			ticker = stocks[i][0]
+			name = ""
+			for data in json_data["data"]:
+				if ticker.upper() == data["stock"]:
+					name = data["name"]
+					break
+			embed_str = embed_str + name + " (" + stocks[i][0].upper() + "): ±**" + "{:,.2f}".format(stocks[i][1]) + "%**\n"
+			if i > 9:
+				break
+		embed.color = discord.Color.orange()
+		embed.set_thumbnail(url=stonks_png)
+		embed.add_field(name="Volatility for the last 30 minutes: " + time, value=embed_str)
+		for key in range(0, len(channels["id"])):
+			if channels["alerts"] == "alerts":
+				channel = await client.fetch_channel(channels["id"][key])
+				await channel.send(embed=embed)
 
 	def set_author(self, message, embed):
 		if message.author.avatar:
@@ -623,7 +764,7 @@ class TornStonksLive(discord.Client):
 	# petrol station, seriously NOT recommended
 	async def alert_user(self, item, id, type, stock, value, data):
 		global stonks_png
-		if type == "up":
+		if "up" in type:
 			embed = discord.Embed(title=data["name"] + " Above Target Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(stock)+"&tab=owned")
 			embed.color = discord.Color.orange()
 			embed.add_field(name="Stonks!", value=data["name"] + " has reached or exceeded your target price of: $" + "{:,}".format(value) + ".")
@@ -631,7 +772,7 @@ class TornStonksLive(discord.Client):
 			user = await self.fetch_user(id)
 			self.set_author_notif(user, embed)
 			await user.send(embed=embed)
-		elif type == "down":
+		elif "down" in type:
 			embed = discord.Embed(title=data["name"] + " Below Target Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(stock)+"&tab=owned")
 			embed.color = discord.Color.orange()
 			embed.add_field(name="Stonks!", value=data["name"] + " has reached or fallen under your target price of: $" + "{:,}".format(value) + ".")
@@ -656,11 +797,11 @@ class TornStonksLive(discord.Client):
 			remove_entries = []
 			for item in range(0, len(userdata["id"])):
 				if userdata["stock"][item].upper() == data["stock"]:
-					if userdata["type"][item] == "up":
+					if "up" in userdata["type"][item]:
 						if float(data["price"]) >= userdata["value"][item]:
 							client.loop.create_task(self.alert_user(item, userdata["id"][item], userdata["type"][item], userdata["stock"][item], userdata["value"][item], data))
 							remove_entries.append(item)
-					elif userdata["type"][item] == "down":
+					elif "down" in userdata["type"][item]:
 						if float(data["price"]) <= userdata["value"][item]:
 							client.loop.create_task(self.alert_user(item, userdata["id"][item], userdata["type"][item], userdata["stock"][item], userdata["value"][item], data))
 							remove_entries.append(item)
@@ -735,60 +876,108 @@ class TornStonksLive(discord.Client):
 
 		# Find the top three of each
 		stocks = [*stock_data.keys()]
-		up_tick = ""
-		down_tick = ""
-		up = 0
-		down = 0
-		for k in range(len(stocks)):
-			ticker = stocks[k]
+		global best_gain
+		global best_loss
+		global best_rand
+		global not_more
 
-			svm = stock_data[ticker]["svm"]["actual"]
-			lr = stock_data[ticker]["lr"]["actual"]
-			svml = stock_data[ticker]["svml"]["actual"]
-			avg = stock_data[ticker]["avg"]["actual"]
+		if len(stocks) >= 4:
+			not_more = False
+			up_tick = ""
+			down_tick = ""
+			up = 0
+			down = 0
+			for k in range(len(stocks)):
+				ticker = stocks[k]
 
-			if svm > up:
-				up = svm
-				up_tick = ticker
-			elif lr > up:
-				up = lr
-				up_tick = ticker
-			elif svml > up:
-				up = svml
-				up_tick = ticker
-			elif avg > up:
-				up = avg
-				up_tick = ticker			
+				svm = stock_data[ticker]["svm"]["actual"]
+				lr = stock_data[ticker]["lr"]["actual"]
+				svml = stock_data[ticker]["svml"]["actual"]
+				avg = stock_data[ticker]["avg"]["actual"]
 
-			if svm < down:
-				down = svm
-				down_tick = ticker
-			elif lr < down:
-				down = lr
-				down_tick = ticker
-			elif svml < down:
-				down = svml
-				down_tick = ticker
-			elif avg < down:
-				down = avg
-				down_tick = ticker
+				if svm > up:
+					up = svm
+					up_tick = ticker
+				elif lr > up:
+					up = lr
+					up_tick = ticker
+				elif svml > up:
+					up = svml
+					up_tick = ticker
+				elif avg > up:
+					up = avg
+					up_tick = ticker			
+				
+				if svm < down:
+					down = svm
+					down_tick = ticker
+				elif lr < down:
+					down = lr
+					down_tick = ticker
+				elif svml < down:
+					down = svml
+					down_tick = ticker
+				elif avg < down:
+					down = avg
+					down_tick = ticker
 
-		best_up = stock_data[up_tick]
-		best_down = stock_data[down_tick]
+			best_up = stock_data[up_tick]
+			best_down = stock_data[down_tick]
+			# Global memory
+			best_gain = stock_data[up_tick]
+			best_loss = stock_data[down_tick]
+			
 		
-		# Remove old entries from the list 
-		if up_tick in stock_data:
-			del stock_data[up_tick]
-		if down_tick in stock_data:
-			del stock_data[down_tick]
+			# Remove old entries from the list 
+			if up_tick in stock_data:
+				del stock_data[up_tick]
+			if down_tick in stock_data:
+				del stock_data[down_tick]
 
-		# Pick a random stock to ensure a less apparent bias
-		stocks = [*stock_data.keys()]
-		stoch_tick = stocks[random.randint(0, len(stocks))]
-		stoch_stock = stock_data[stoch_tick]
-
-		client.loop.create_task(self.post_recommendations(best_up, best_down, stoch_stock))
+			# Pick a random stock to ensure a less apparent bias
+			stocks = [*stock_data.keys()]
+			stoch_tick = stocks[random.randint(0, len(stocks))]
+			best_rand = stock_data[stoch_tick]
+			with open("best_gain.json", "w") as file:
+				json.dump(best_gain, file)
+			with open("best_loss.json", "w") as file:
+				json.dump(best_loss, file)
+			with open("best_rand.json", "w") as file:
+				json.dump(best_rand, file)
+			client.loop.create_task(self.post_recommendations(best_up, best_down, best_rand))
+		else:
+			not_more = True
+			# Pick a random stock since we have < 3
+			stocks = [*stock_data.keys()]
+			stoch_tick = stocks[random.randint(0, len(stocks))]
+			best_rand = stock_data[stoch_tick]
+			with open("best_gain.json", "w") as file:
+				json.dump(best_rand, file)
+			with open("best_loss.json", "w") as file:
+				json.dump(best_rand, file)
+			with open("best_rand.json", "w") as file:
+				json.dump(best_rand, file)
+			#client.loop.create_task(client.change_presence(status=discord.Status.online))
+			client.loop.create_task(self.post_single_recommendation(best_rand))
+	
+	def process_volatility(self):
+		stock_data = []
+		for i in range(len(stock_lut)):
+			ticker = stock_lut[i].lower()
+			try:
+				ohlc = get_tornsy_candlesticks(ticker, "m30", "1")
+				volatility = abs((float(ohlc["data"][0][3]) - float(ohlc["data"][0][2])) / float(ohlc["data"][0][2])) * 100
+				if volatility >= 0.25:
+					stock_data.append((ticker, volatility))
+			except:
+				write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
 		
+		if len(stock_data) > 0:
+			stock_data.sort(key=lambda tup: tup[1], reverse=True)
+			client.loop.create_task(self.post_volatility(stock_data))
+		else:
+			write_notification_to_log("[NOTICE] No stocks to post.")
+
 	async def help(self, message, prefix):
 		if message.content.startswith(prefix+"help"):
 			if message.content == prefix+"help":
@@ -1140,12 +1329,12 @@ class TornStonksLive(discord.Client):
 				if c_len > 1:
 					# Anti idiot security
 					if c_len >= 3:
-						known_types = ["up", "down", "loss"]
+						known_types = ["up", "down", "loss", "up_react", "down_react"]
 						if command[2].lower() not in known_types:
 							embed = discord.Embed(title=":no_entry_sign: Invalid Argument: :no_entry_sign:")
 							embed.color = discord.Color.red()
 							self.set_author(message, embed)
-							embed.add_field(name="Details:", value='Command argument after stock ticker must be "up", "down" or "loss".')
+							embed.add_field(name="Details:", value='Command argument after stock ticker must be "up", "down", "loss", "up_react" or "down_react.')
 							await message.channel.send(embed=embed, mention_author=False, reference=message)
 							return
 						
@@ -1158,6 +1347,7 @@ class TornStonksLive(discord.Client):
 							embed.add_field(name="Details:", value='Command argument after notification type must be a number, argument example: `123.45`')
 							await message.channel.send(embed=embed, mention_author=False, reference=message)
 							return
+
 					# Remove pending items if we have some
 					if int(message.author.id) in userdata["id"]:
 						for key in range(len(userdata["id"])-1, -1, -1):
@@ -1622,6 +1812,9 @@ class TornStonksLive(discord.Client):
 				self.process_suggestions()
 			else:
 				print("will not make suggestions")
+		elif message.content == prefix+"volatility":
+			if int(message.author.id) in bot_admins:
+				self.process_volatility()
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
@@ -1660,25 +1853,147 @@ class TornStonksLive(discord.Client):
 		await self.sma(message, cmd_prefix)
 		await self.predict(message, cmd_prefix)
 		#await self.testimonial(message, cmd_prefix)
-		#self.test_suggestions(message, cmd_prefix)
+		self.test_suggestions(message, cmd_prefix)
 		await self.stop(message, cmd_prefix)
+
+	# Listen for automated reactions on suggestions
+	async def on_raw_reaction_add(self, payload):
+		user = await client.fetch_user(payload.user_id)
+		# The bot should add itself to the userdata list
+		if user == self.user:
+			return
+
+		# Ignore noisy bots or terrible bots
+		if user.bot:
+			return
+
+		one = "1️⃣"
+		two = "2️⃣"
+		three = "3️⃣"
+		global last_pred_id
+		message_id = int(payload.message_id)
+		for message in last_pred_id:
+			if message_id == int(message.id):
+				global not_more
+				if payload.emoji.name == one and not not_more:
+					lowest_perc = 10000
+					if best_gain["svm"]["actual"] > 0:
+						lowest_perc = best_gain["svm"]["actual"]
+					if best_gain["svml"]["actual"] < lowest_perc and best_gain["svml"]["actual"] > 0:
+						lowest_perc = best_gain["svml"]["actual"]
+					if best_gain["lr"]["actual"] < lowest_perc and best_gain["lr"]["actual"] > 0:
+						lowest_perc = best_gain["lr"]["actual"]
+					if best_gain["avg"]["actual"] < lowest_perc and best_gain["avg"]["actual"] > 0:
+						lowest_perc = best_gain["avg"]["actual"]
+					for data in json_data["data"]:
+						if data["stock"] == best_gain["ticker"].upper():
+							userdata["id"].append(int(payload.user_id))
+							userdata["type"].append("up_react")
+							userdata["stock"].append(str(best_gain["ticker"].lower()))
+							userdata["value"].append(best_gain["price"] * (1 + (lowest_perc / 100)))
+							write_user_alerts()
+							break
+				elif payload.emoji.name == two and not not_more:
+					lowest_perc = -10000
+					if best_loss["svm"]["actual"] < 0:
+						lowest_perc = best_loss["svm"]["actual"]
+					if best_loss["svml"]["actual"] > lowest_perc and best_loss["svml"]["actual"] < 0:
+						lowest_perc = best_loss["svml"]["actual"]
+					if best_loss["lr"]["actual"] > lowest_perc and best_loss["lr"]["actual"] < 0:
+						lowest_perc = best_loss["lr"]["actual"]
+					if best_loss["avg"]["actual"] > lowest_perc and best_loss["avg"]["actual"] < 0:
+						lowest_perc = best_loss["avg"]["actual"]
+					for data in json_data["data"]:
+						if data["stock"] == best_loss["ticker"].upper():
+							userdata["id"].append(int(payload.user_id))
+							userdata["type"].append("down_react")
+							userdata["stock"].append(best_loss["ticker"].lower())
+							userdata["value"].append(best_loss["price"] * (1 + (lowest_perc / 100)))
+							write_user_alerts()
+							break
+				elif payload.emoji.name == three:
+					# Use the average to determine an up or down setting
+					lowest_perc = 0
+					if best_rand["avg"]["actual"] < 0:
+						lowest_perc = -10000
+						if best_rand["svl"]["actual"] > lowest_perc and best_rand["svm"]["actual"] < 0:
+							lowest_perc = best_rand["svm"]["actual"]
+						if best_rand["svml"]["actual"] > lowest_perc and best_rand["svml"]["actual"] < 0:
+							lowest_perc = best_rand["svml"]["actual"]
+						if best_rand["lr"]["actual"] > lowest_perc and best_rand["lr"]["actual"] < 0:
+							lowest_perc = best_rand["lr"]["actual"]
+						if best_rand["avg"]["actual"] > lowest_perc and best_rand["avg"]["actual"] < 0:
+							lowest_perc = best_rand["avg"]["actual"]
+						for data in json_data["data"]:
+							if data["stock"] == best_rand["ticker"].upper():
+								userdata["id"].append(int(payload.user_id))
+								userdata["type"].append("down_react")
+								userdata["stock"].append(best_rand["ticker"].lower())
+								userdata["value"].append(best_rand["price"] * (1 + (lowest_perc / 100)))
+								write_user_alerts()
+								break
+					else:
+						lowest_perc = 10000
+						if best_rand["svm"]["actual"] < lowest_perc and best_rand["svm"]["actual"] > 0:
+							lowest_perc = best_gain["svm"]["actual"]
+						if best_rand["svml"]["actual"] < lowest_perc and best_rand["svml"]["actual"] > 0:
+							lowest_perc = best_gain["svml"]["actual"]
+						if best_rand["lr"]["actual"] < lowest_perc and best_rand["lr"]["actual"] > 0:
+							lowest_perc = best_gain["lr"]["actual"]
+						if best_rand["avg"]["actual"] < lowest_perc and best_rand["avg"]["actual"] > 0:
+							lowest_perc = best_gain["avg"]["actual"]
+						for data in json_data["data"]:
+							if data["stock"] == best_rand["ticker"].upper():
+								userdata["id"].append(int(payload.user_id))
+								userdata["type"].append("up_react")
+								userdata["stock"].append(best_rand["ticker"].lower())
+								userdata["value"].append(best_rand["price"] * (1 + (lowest_perc / 100)))
+								write_user_alerts()
+								break
+				
+	async def on_raw_reaction_remove(self, payload):
+		user = await client.fetch_user(payload.user_id)
+		# The bot should add itself to the userdata list
+		if user == self.user:
+			return
+
+		# Ignore noisy bots or terrible bots
+		if user.bot:
+			return
+
+		global last_pred_id
+		one = "1️⃣"
+		two = "2️⃣"
+		three = "3️⃣"
+		global last_pred_id
+		message_id = int(payload.message_id)
+
+		for message in last_pred_id:
+			if message_id == int(message.id):
+				if int(payload.user_id) in userdata["id"]:
+					for key in range(len(userdata["id"])-1, -1, -1):
+						if int(user.id) == userdata["id"][key]:
+							rem_str = ""
+							if payload.emoji.name == one and not not_more:
+								rem_str = "up_react"
+							elif payload.emoji.name == two and not not_more:
+								rem_str = "down_react"
+							elif payload.emoji.name == three:
+								if best_rand["avg"]["actual"] < 0:
+									rem_str = "down_react"
+								else:
+									rem_str = "up_react"
+							
+							if rem_str == userdata["type"][key]:
+								write_notification_to_log("[NOTICE]: " + user.display_name + " deleted notification: " + str(userdata["id"][key]) + "," + userdata["type"][key] + "," + userdata["stock"][key] + "," + str(userdata["value"][key]))
+								del userdata["id"][key]
+								del userdata["type"][key]
+								del userdata["stock"][key]
+								del userdata["value"][key]
+								write_user_alerts()
+								break
+			
 
 client = TornStonksLive(intents=intent)
 client.run(bot_token)
-
-def process_suggests():
-	try:
-		TornStonksLive.process_suggestions(client)
-	except:
-		write_notification_to_log("[WARNING] Potential problem with suggestion predictions.")
-
-enable_suggestions = True
-if enable_suggestions:
-	schedule.every().day.at("01:00:20").do(process_suggests)
-	schedule.every().day.at("05:00:20").do(process_suggests)
-	schedule.every().day.at("09:00:20").do(process_suggests)
-	schedule.every().day.at("13:00:20").do(process_suggests)
-	schedule.every().day.at("19:00:20").do(process_suggests)
-	schedule.every().day.at("21:00:20").do(process_suggests)
-
-write_notification_to_log("[STARTUP] " + app_name + " started.")
+# Code written below this command will never be executed

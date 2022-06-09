@@ -14,7 +14,7 @@ For graciously donating $30m.
 For graciously donating $70m.
 
 **Happwy [2683992]:**
-For graciously donating 5x Xanax.
+For graciously donating 5x Xanax, 2x Lottery Voucher and a profile picture.
 
 **Patchwork [977198]:**
 For graciously donating $100m.
