@@ -20,4 +20,4 @@ For graciously donating 5x Xanax, 2x Lottery Voucher and a profile picture.
 For graciously donating $100m.
 
 **PannenKoek [607891]:**
-For graciously donating $100m.
+For graciously donating $350m.

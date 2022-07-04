@@ -129,9 +129,10 @@ dmypy.json
 .pyre/
 
 # No syncing of configs
+alert_channels.conf
+suggestion_channels.conf
 settings.conf
-channels.conf
-graph_channels.conf
+command_channels.conf
 admins.conf
 userdata.csv
 /graphs
@@ -142,3 +143,4 @@ userdata.csv
 best_gain.json
 best_loss.json
 best_rand.json
+/db

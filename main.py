@@ -1,5 +1,5 @@
-from msilib.schema import Error
-from sqlite3 import enable_shared_cache
+from math import floor
+from matplotlib.lines import Line2D
 import requests
 import json
 import schedule
@@ -11,13 +11,27 @@ import numpy as np
 import pandas as pd
 import random
 from datetime import datetime, date, timezone
-from sklearn.metrics import label_ranking_average_precision_score
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.linear_model import LinearRegression, Ridge, ElasticNet, Lasso
+from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR, LinearSVR
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import discord
+import sqlite3
+
+# Basic maths stuff
+
+def remap(val, val_min, val_max, map_min, map_max):
+	return (val-val_min) / (val_max-val_min) * (map_max-map_min) + map_min
+
+def clamp_(val, min, max):
+	if val <= min:
+		return min
+	elif val >= max:
+		return max
+	else:
+		return val
+	
 
 app_name = "TornStonks Live"
 bot_started = False
@@ -45,6 +59,7 @@ notstonks_png = "https://cdn.discordapp.com/attachments/315121916199305218/97630
 stonks_png = "https://cdn.discordapp.com/attachments/315121916199305218/976306804176863293/tornstonks.png"
 
 bot_token = ""
+tornsy_recursive_limit = -1
 with open("settings.conf", "r") as system_config:
 	config_lines = system_config.readlines()
 	count = 0
@@ -52,6 +67,8 @@ with open("settings.conf", "r") as system_config:
 		count += 1
 		if count == 1:
 			bot_token = line.strip()
+		if count == 2:
+			tornsy_recursive_limit = int(line.strip())
 		else:
 			break
 
@@ -60,46 +77,80 @@ if bot_token == "":
 		file.write("")
 	raise Exception("Bot token is missing")
 
-channels = {"id":[], "small":[], "medium":[], "large":[], "prefix":[], "alerts":[], "predict":[]}
-with open("channels.conf", "r") as channel_config:
+command_channels = {"id":[], "prefix":[], "predict":[]}
+with open("command_channels.conf", "r") as channel_config:
 	lines = channel_config.readlines()
 	for line in lines:
-		data = line.strip().split(",", 6)
-		if len(data) == 7:
-			channels["id"].append(int(data[0]))
-			channels["small"].append(int(data[1]))
-			channels["medium"].append(int(data[2]))
-			channels["large"].append(int(data[3]))
-			channels["prefix"].append(str(data[4]))
-			channels["alerts"].append(str(data[5]))
-			channels["predict"].append(str(data[6]))
+		# Handle comments
+		if line.strip().startswith("#"):
+			continue
+
+		data = line.strip().split(",")
+		if len(data) == 3:
+			command_channels["id"].append(int(data[0]))
+			command_channels["prefix"].append(str(data[1]))
+			command_channels["predict"].append(str(data[2]))
 		else:
-			write_notification_to_log("[WARNING] channels.conf has incorrect data, skipping the malformed line.")
+			write_notification_to_log("[WARNING] command_channels.conf has incorrect data, skipping the malformed line.")
 
-if len(channels["id"]) == 0:
-	with open("channels.conf", "w") as file:
+if len(command_channels["id"]) == 0:
+	with open("command_channels.conf", "w") as file:
 		file.write("")
-	raise Exception("No channels to send/receive messages to - channels.conf created.")
+	raise Exception("No channels to send/receive commands to - command_channels.conf created.")
 
-graph_channels = {"id":[]}
-with open("graph_channels.conf", "r") as graph_config:
-	lines = graph_config.readlines()
+# Automated suggestions:
+suggestion_channels = {"id":[]}
+with open("suggestion_channels.conf", "r") as suggest_config:
+	lines = suggest_config.readlines()
 	for line in lines:
+		# Handle comments
+		if line.strip().startswith("#"):
+			continue
+
 		data = line.strip().split(",")
 		if len(data) == 1:
-			graph_channels["id"].append(int(data[0]))
+			suggestion_channels["id"].append(int(data[0]))
 		else:
-			write_notification_to_log("[WARNING] graph_channels.confg has incorrect data, skipping the malformed line.")
+			write_notification_to_log("[WARNING] suggestion_channels.conf has incorrect data, skipping the malformed line.")
 
-if len(graph_channels["id"]) == 0:
-	with open("graph_channels.conf", "w") as file:
+if len(suggestion_channels["id"]) == 0:
+	with open("suggestion_channels.conf", "w") as file:
 		file.write("")
-	raise Exception("No channels to send automated analysis to - graph_channels.conf created.")
+	raise Exception("No channels to send automated analysis to - suggestion_channels.conf created.")
 
+# Alerts and notifications
+alert_channels = {"id":[], "small":[], "medium":[], "large":[], "tiny":[]}
+with open("alert_channels.conf", "r") as alert_config:
+	lines = alert_config.readlines()
+	for line in lines:
+		# Handle comments
+		if line.strip().startswith("#"):
+			continue
+
+		data = line.strip().split(",")
+		if len(data) == 5:
+			alert_channels["id"].append(int(data[0]))
+			alert_channels["tiny"].append(int(data[1]))
+			alert_channels["small"].append(int(data[2]))
+			alert_channels["medium"].append(int(data[3]))
+			alert_channels["large"].append(int(data[4]))
+		else:
+			write_notification_to_log("[WARNING] alert_channels.conf has incorrect data, skipping the malformed line.")
+
+if len(alert_channels["id"]) == 0:
+	with open("alert_channels.conf", "w") as file:
+		file.write("")
+	raise Exception("No channels to send automated notifications to - alert_channels.conf created.")
+
+# Read admins out
 bot_admins = []
 with open("admins.conf", "r") as admin_config:
 	lines = admin_config.readlines()
 	for line in lines:
+		# Handle comments
+		if line.strip().startswith("#"):
+			continue
+
 		bot_admins.append(int(line.strip()))
 
 if len(bot_admins) == 0:
@@ -161,7 +212,6 @@ try:
 except:
 	raise Exception("Tornsy probably timed out.")
 
-
 # Nicked from https://schedule.readthedocs.io/en/stable/background-execution.html
 # But I don't think many will actually care.
 def run_continuously(interval=1):
@@ -187,24 +237,6 @@ def run_continuously(interval=1):
 	continuous_thread = ScheduleThread()
 	continuous_thread.start()
 	return cease_continuous_run
-
-json_data = ""
-def get_latest_stocks():
-	update_date()
-	global tornsy_data
-	tornsy_data = requests.get(tornsy_api_address)
-
-	if tornsy_data.status_code == 200:
-		global json_data
-		json_data = json.loads(tornsy_data.text)
-		global bot_started
-		if bot_started:
-			TornStonksLive.process_stockdata(client)
-	else:
-		write_notification_to_log("[WARNING] Server returned error code: " + str(tornsy_data.status_code))
-
-# Get initial data
-get_latest_stocks()
 
 # Quickly converts between name and ID
 stock_lut = [
@@ -250,57 +282,249 @@ def lut_stock_id(name):
 		id+=1
 	return str(id)
 
-def get_torn_stock_data(api_key):
-	return requests.get("https://api.torn.com/user/?selections=stocks&key=" + api_key)
+# Utils
+json_data = ""
+intervals = ["m1", "m5", "m15", "m30", "h1", "h2", "h4", "h6", "h12", "d1"]
 
-valid_ohlc_times = [
-	"m1",
-	"m5",
-	"m15",
-	"m30",
-	"h1",
-	"h2",
-	"h4",
-	"h6",
-	"h12",
-	"d1",
-	"w1",
-	"n1",
-	"y1",
-]
-
-def get_tornsy_candlesticks(ticker, interval, limit):
+def get_tornsy_candlesticks(ticker, interval, limit, to="NONE"):
 	ohlc_address = "https://tornsy.com/api/" + ticker + "?interval=" + interval + "&limit=" + limit
-	ohlc_req = requests.get(ohlc_address)
 
+	# If a timestamp was specified, add that to the call
+	if to != "NONE":
+		ohlc_address = ohlc_address + "&to=" + str(to)
+
+	ohlc_req = requests.get(ohlc_address)
 	if ohlc_req.status_code == 200:
 		ohlc_data = json.loads(ohlc_req.text)
 		return ohlc_data
 	else:
 		return False
 
-def predict_stocks(ticker, interval, forecast, render_graphs):
-	# Translate between Tornsy's data and ML compliant formats;
-	ohlc_data = get_tornsy_candlesticks(ticker, interval, "2000")
-	if not ohlc_data:
-		return
+def get_stock_from_db(ticker, interval, limit=-1):
+	# Translate between local SQL db and expected formatting:
+	pwd = os.getcwd()
+	name = ticker.lower()
+	con = sqlite3.connect(pwd + "/db/db_" + name + ".db")
+	cur = con.cursor()
+
+	ohlc_data = []
+
+	query = "SELECT * FROM " + interval.lower() + " ORDER BY date DESC"
+	if limit > 0:
+		query += " LIMIT " + str(limit)
+	else:
+		query += " LIMIT 4000"
+
+	for row in cur.execute(query):
+		ohlc_data.append(row)
 	
-	dt = {"date":[], "open":[], "high":[], "low":[], "close":[]}
+	# Fix inverse sort
+	ohlc_data.sort(key=lambda tup: tup[0])
+
+	dt = {"date":[], "open":[], "high":[], "low":[], "close":[], "sma":[]}
 	
 	if interval == "m1":
-		for item in ohlc_data["data"]:
+		for item in ohlc_data:
 			dt["date"].append(datetime.utcfromtimestamp(int(item[0])).strftime('%H:%M:%S %d/%m/%y'))
 			dt["open"].append(float(item[1]))
 			dt["high"].append(float(item[1]))
 			dt["low"].append(float(item[1]))
 			dt["close"].append(float(item[1]))
+			dt["sma"].append(float(item[1]))
 	else:
-		for item in range(0, len(ohlc_data["data"])):
-			dt["date"].append(datetime.utcfromtimestamp(int(ohlc_data["data"][item][0])).strftime('%H:%M:%S %d/%m/%y'))
-			dt["open"].append(float(ohlc_data["data"][item][1]))
-			dt["high"].append(float(ohlc_data["data"][item][2]))
-			dt["low"].append(float(ohlc_data["data"][item][3]))
-			dt["close"].append(float(ohlc_data["data"][item][4]))
+		for item in ohlc_data:
+			dt["date"].append(datetime.utcfromtimestamp(int(item[0])).strftime('%H:%M:%S %d/%m/%y'))
+			dt["open"].append(float(item[1]))
+			dt["high"].append(float(item[2]))
+			dt["low"].append(float(item[3]))
+			dt["close"].append(float(item[4]))
+			dt["sma"].append(float(item[4]))
+	return dt
+
+def update_from_tornsy():
+	pwd = os.getcwd()
+	for data in json_data["data"]:
+		# Deny TCSE usage
+		if data["stock"] == "TCSE":
+			continue
+
+		name = data["stock"].lower()
+		con = sqlite3.connect(pwd + "/db/db_" + name + ".db")
+		cur = con.cursor()
+
+		for interval in intervals:
+			dat = int(json_data["timestamp"])
+			timestamp = 0
+			if interval == "m5":
+				timestamp = floor(dat / 300) * 300
+			elif interval == "m15":
+				timestamp = floor(dat / 900) * 900
+			elif interval == "m30":
+				timestamp = floor(dat / 1800) * 1800
+			elif interval == "h1":
+				timestamp = floor(dat / 3600) * 3600
+			elif interval == "h2":
+				timestamp = floor(dat / 7200) * 7200
+			elif interval == "h4":
+				timestamp = floor(dat / 14400) * 14400
+			elif interval == "h6":
+				timestamp = floor(dat / 21600) * 21600
+			elif interval == "h12":
+				timestamp = floor(dat / 43200) * 43200
+			elif interval == "d1":
+				timestamp = floor(dat / 86400) * 86400
+			else: # == "m1"
+				timestamp = floor(dat / 60) * 60
+			timestamp = int(timestamp)
+
+			cmd = "INSERT INTO " + interval + "(date, open, high, low, close) VALUES "
+			cmd += "(" + str(timestamp) + ", "
+			cmd += data["price"] + ", "
+			cmd += data["price"] + ", "
+			cmd += data["price"] + ", "
+			cmd += data["price"] + ") "
+			cmd += "ON CONFLICT(date) DO UPDATE SET "
+			cmd += "high=IIF(" + data["price"] + " > high, " + data["price"] + ", high), "
+			cmd += "low=IIF(" + data["price"] + " < low, " + data["price"] + ", low), "
+			cmd += "close=" + data["price"]
+			cur.execute(cmd)
+
+		con.commit()
+		con.close()
+
+def import_from_tornsy(ticker, limit=-1):
+	pwd = os.getcwd()
+	name = ticker.lower()
+	con = sqlite3.connect(pwd + "/db/db_" + name + ".db")
+	cur = con.cursor()
+
+	ohlc_data = get_tornsy_candlesticks(ticker, "m1", str(2000))
+	if not ohlc_data:
+		return
+	
+	dt = {"date":[], "open":[], "high":[], "low":[], "close":[]}
+
+	# Only grab previous entries if there are exactly 2000 entries.
+	# Or limit >= 1
+	if len(ohlc_data["data"]) == 2000 and limit > 0:
+		cdate = str(ohlc_data["data"][0][0])
+		ohlcs = []
+		
+		lim = 0
+		while True:
+			ohlc = get_tornsy_candlesticks(ticker, "m1", str(2000), cdate)
+			if not ohlc:
+				return
+
+			cdate = str(ohlc["data"][0][0])
+			ohlcs.insert(0, ohlc)
+			# Don't grab another set because Tornsy lacks history
+			# or if we hit the cap on importing data
+			if len(ohlc["data"]) < 2000 or lim == limit:
+				break
+			lim += 1
+			time.sleep(0.05)
+
+		# Append all the data 
+		for k in range(len(ohlcs)):
+			for i in range(len(ohlcs[k]["data"])):
+				dt["date"].append((ohlcs[k]["data"][i][0]))
+				dt["open"].append((ohlcs[k]["data"][i][1]))
+				dt["high"].append((ohlcs[k]["data"][i][1]))
+				dt["low"].append((ohlcs[k]["data"][i][1]))
+				dt["close"].append((ohlcs[k]["data"][i][1]))
+
+		for item in ohlc_data["data"]:
+			dt["date"].append((item[0]))
+			dt["open"].append((item[1]))
+			dt["high"].append((item[1]))
+			dt["low"].append((item[1]))
+			dt["close"].append((item[1]))
+
+	write_notification_to_log("[INFO]: " + ticker.lower() + " downloading completed.")
+
+	for i in range(len(dt["date"])):
+		for interval in intervals:
+			try:
+				cur.execute("CREATE TABLE " + interval + " (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
+			except:
+				pass
+
+			timestamp = 0
+			dt_time = int(dt["date"][i])
+			if interval == "m5":
+				timestamp = floor(dt_time / 300) * 300
+			elif interval == "m15":
+				timestamp = floor(dt_time / 900) * 900
+			elif interval == "m30":
+				timestamp = floor(dt_time / 1800) * 1800
+			elif interval == "h1":
+				timestamp = floor(dt_time / 3600) * 3600
+			elif interval == "h2":
+				timestamp = floor(dt_time / 7200) * 7200
+			elif interval == "h4":
+				timestamp = floor(dt_time / 14400) * 14400
+			elif interval == "h6":
+				timestamp = floor(dt_time / 21600) * 21600
+			elif interval == "h12":
+				timestamp = floor(dt_time / 43200) * 43200
+			elif interval == "d1":
+				timestamp = floor(dt_time / 86400) * 86400
+			else: # == "m1"
+				timestamp = floor(dt_time / 60) * 60
+
+			cmd = "INSERT INTO " + interval + "(date, open, high, low, close) VALUES "
+			cmd += "(" + str(timestamp) + ", "
+			cmd += str(dt["open"][i]) + ", "
+			cmd += str(dt["high"][i]) + ", "
+			cmd += str(dt["low"][i]) + ", "
+			cmd += str(dt["close"][i]) + ") "
+			cmd += "ON CONFLICT(date) DO UPDATE SET "
+			cmd += "high=IIF(" + str(dt["high"][i]) + " > high, " + str(dt["high"][i]) + ", high), "
+			cmd += "low=IIF(" + str(dt["low"][i]) + " < low, " + str(dt["low"][i]) + ", low), "
+			cmd += "close=" + str(dt["close"][i])
+			try:
+				cur.execute(cmd)
+			except:
+				print(cmd)
+
+	con.commit()
+	con.close()
+
+for ticker in stock_lut:
+	write_notification_to_log("[INFO]: Downloading " + ticker + ".")
+	import_from_tornsy(ticker)
+	write_notification_to_log("[INFO]: " + ticker + " added to DB.")
+
+def get_latest_stocks():
+	update_date()
+	global tornsy_data
+	try:
+		tornsy_data = requests.get(tornsy_api_address)
+	except:
+		write_notification_to_log("[WARNING] Tornsy appears to be having issues")
+		return
+
+	if tornsy_data.status_code == 200:
+		global json_data
+		json_data = json.loads(tornsy_data.text)
+		update_from_tornsy()
+		global bot_started
+		if bot_started:
+			TornStonksLive.process_stockdata(client)
+	else:
+		write_notification_to_log("[WARNING] Server returned error code: " + str(tornsy_data.status_code))
+
+
+# Get initial data
+get_latest_stocks()
+
+def get_torn_stock_data(api_key):
+	return requests.get("https://api.torn.com/user/?selections=stocks&key=" + api_key)
+
+def predict_stocks_v2(ticker, interval, forecast, render_graphs, samples=2000):
+	nsamples = clamp_(samples, 300, 16000)
+	dt = get_stock_from_db(ticker, interval, nsamples)
 
 	df = pd.DataFrame(data=dt)
 	df = df[["close"]]
@@ -312,10 +536,14 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 	y = np.array(df["prediction"])
 	y = y[:-(forecast+1)]
 	
-	x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+	test_size = 0.2
+	test_size = remap(len(dt["close"]), 1000, 16000, 0.4, 0.025)
+	test_size = clamp_(test_size, 0.025, 0.2)
+
+	x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size)
 
 	# Train and setup prediction engines
-	svr_rbf = SVR(kernel='rbf', C=1e3, gamma=0.1) 
+	svr_rbf = SVR(kernel='rbf', C=250, gamma=0.1) 
 	svr_rbf.fit(x_train, y_train)
 	svm_confidence = svr_rbf.score(x_test, y_test)
 
@@ -386,6 +614,7 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 		svm_l_prediction[key] -= diff_svml
 		avg = float(svm_prediction[key] + lr_prediction[key] + svm_l_prediction[key]) / 3
 		avg_prediction.append(avg)
+		dt["sma"].append(avg)
 
 		# Find highs and lows for all predicts, including the average:
 		svm = svm_prediction[key]
@@ -431,11 +660,6 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 			hlvc["avg"]["volatility"] = perc
 			hlvc["avg"]["actual"] = aperc
 
-	# svm_prediction = np.insert(svm_prediction, 0, price)
-	# lr_prediction = np.insert(lr_prediction, 0, price)
-	# svm_l_prediction = np.insert(svm_l_prediction, 0, price)
-	# avg_prediction.insert(0, price)
-
 	# Figure out timestamps
 	period = int(int ( ''.join(filter(str.isdigit, interval) ) ))
 	period_ticks = []
@@ -459,6 +683,17 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 	
 	# Render the PNG graph
 	if render_graphs:
+		# Create SMA graph line
+		sma_avg = []
+		sma_amt = 15
+		sma_len = (len(dt["sma"])) - (forecast + sma_amt)
+		sma_len_b = len(dt["close"]) + 1
+		for f in range(forecast+1):
+			sma_val = 0
+			for i in range(sma_len+f, sma_len_b+f):
+				sma_val += float(dt["sma"][i])
+			sma_avg.append(sma_val/(sma_amt))
+
 		# Make x-axis timestamps not suck
 		xticks = []
 		xticks.append(0)
@@ -467,14 +702,16 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 
 		plt.style.use("ggplot")
 		fig, ax = plt.subplots()
-		ax.plot(svm_prediction, linewidth=12, alpha=0.1, color="red")
-		ax.plot(lr_prediction, linewidth=12, alpha=0.1, color="blue")
-		ax.plot(svm_l_prediction, linewidth=12, alpha=0.1, color="purple")
-		ax.plot(avg_prediction, linewidth=12, alpha=0.1, color="green")
-		ax.plot(svm_prediction, label="SVM", alpha=0.3, linewidth=1.5, color="red")
-		ax.plot(lr_prediction, label="LR", alpha=0.3, linewidth=1.5, color="blue")
-		ax.plot(svm_l_prediction, label="SVM Linear", alpha=0.3, linewidth=1.5, color="purple")
-		ax.plot(avg_prediction, label="Average", linewidth=1.5, color="green")
+		ax.plot(sma_avg, color="#ff8a00", linewidth=2.5, zorder=-10, alpha=0.3)
+		ax.plot(svm_prediction, linewidth=12, alpha=0.05, color="red", zorder=-8)
+		ax.plot(lr_prediction, linewidth=12, alpha=0.05, color="blue", zorder=-7)
+		ax.plot(svm_l_prediction, linewidth=12, alpha=0.05, color="purple", zorder=-6)
+		#ax.plot(avg_prediction, linewidth=12, alpha=0.1, color="green", zorder=-5)
+		ax.plot(svm_prediction, label="SVM", alpha=0.15, linewidth=1.5, color="red", zorder=-4)
+		ax.plot(lr_prediction, label="LR", alpha=0.15, linewidth=1.5, color="blue", zorder=-3)
+		ax.plot(svm_l_prediction, label="SVM Linear", alpha=0.15, linewidth=1.5, color="purple", zorder=-2)
+		#ax.plot(avg_prediction, label="Average", linewidth=1.5, color="green", zorder=-1)
+		ax.plot(sma_avg, label="Trend", alpha=0.9, color="#ff8a00", linewidth=1.5, linestyle="--", zorder=-9, dashes=(5, 2))
 		plt.title(name + " Price Prediction (" + interval + ", " + str(forecast) + ")")
 		ax.yaxis.set_major_formatter('${x:1.2f}')
 		ax.set_xticks(xticks)
@@ -489,6 +726,143 @@ def predict_stocks(ticker, interval, forecast, render_graphs):
 		plt.savefig(file)
 		plt.close()
 	return [file, hlvc, name, period_ticks]
+
+def get_stoch_osc(df, k, t):
+	copy = df.copy()
+
+	high_roll = copy["high"].rolling(k).max()
+	low_roll = copy["low"].rolling(k).min()
+	
+	# Fast osc
+	num = copy["close"] - low_roll
+	denom = high_roll - low_roll
+	copy["k"] = (num / denom) * 100
+
+	# Slow osc
+	copy["d"] = copy["k"].rolling(t).mean()
+	return copy
+
+def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profit_perc=0.1):
+	dt = get_stock_from_db(ticker, interval, limit)
+	df = pd.DataFrame(data=dt)
+
+	stoch = get_stoch_osc(df, k, t)
+	buy_price = []
+	sell_price = []
+	stoch_signal = []
+	signal = 0
+	sig_price = dt["close"][0]
+	perc_gain = 0
+	n_buys = 0
+	n_sells = 0
+
+	for i in range(len(stoch["k"])):
+		if stoch["k"][i] < 20 and stoch["d"][i] < 20 and stoch["k"][i] < stoch["d"][i]:
+			if signal != 1:
+				buy_price.append(dt["close"][i])
+				sell_price.append(np.nan)
+				signal = 1
+				sig_price = dt["close"][i]
+				stoch_signal.append(signal)
+				n_buys += 1
+			else:
+				buy_price.append(np.nan)
+				sell_price.append(np.nan)
+				stoch_signal.append(0)
+		#elif stoch["k"][i] > 80 and stoch["d"][i] > 80 and stoch["k"][i] > stoch["d"][i]:
+		elif stoch["k"][i] > 80 and stoch["d"][i] > 80 and stoch["k"][i] > stoch["d"][i] and (sig_price * (1 + (profit_perc / 100))) < dt["close"][i]:
+			if signal != -1:
+				buy_price.append(np.nan)
+				sell_price.append(dt["close"][i])
+				signal = -1
+				perc = (float((dt["close"][i] - sig_price) / sig_price) * 100)
+				perc_gain += perc
+				sig_price = dt["close"][i]
+				stoch_signal.append(signal)
+				n_sells += 1
+			else:
+				buy_price.append(np.nan)
+				sell_price.append(np.nan)
+				stoch_signal.append(0)
+		else:
+			buy_price.append(np.nan)
+			sell_price.append(np.nan)
+			stoch_signal.append(0)
+
+	position = []
+	for i in range(len(stoch_signal)):
+		if stoch_signal[i] > 1:
+			position.append(0)
+		else:
+			position.append(1)
+
+	for i in range(len(dt["close"])):
+		if stoch_signal[i] == 1:
+			position[i] = 1
+		elif stoch_signal[i] == -1:
+			position[i] = 0
+		else:
+			position[i] = position[i-1]
+
+	# Figure out timestamps
+	len_div = int(len(dt["date"])/6)
+	period_ticks = []
+	period_ticks.append(dt["date"][0])
+	period_ticks.append(dt["date"][(len_div*1)-1-k])
+	period_ticks.append(dt["date"][(len_div*2)-1-k])
+	period_ticks.append(dt["date"][(len_div*3)-1-k])
+	period_ticks.append(dt["date"][(len_div*4)-1-k])
+	period_ticks.append(dt["date"][(len_div*5)-1-k])
+	period_ticks.append(dt["date"][len(dt["date"])-1-k])
+
+	current_time = int(datetime.now(timezone.utc).timestamp())
+	current_time = datetime.utcfromtimestamp(current_time).strftime('%H:%M:%S %d/%m/%y')
+	
+	# Set PNG file name
+	file = os.getcwd()+"/graphs/stoch "+ticker+" "+interval+" " + str(k) + ", " + str(t) + " "+str(current_time.replace("/", "-").replace(":", "-")+".png")
+	
+	# Render the PNG graph
+	if render_graphs:
+		# Make x-axis timestamps not suck
+		xticks = []
+		xticks.append(0)
+		for i in range(1, 7):
+			xticks.append(float(len(dt["date"]) / 6) * i)
+
+		plt.style.use("ggplot")
+		fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(6,6))
+		ax[0].plot(dt["close"], color="skyblue", linewidth=0.75, label="Price")
+		ax[0].plot(df.index, buy_price, marker="^", color="green", markersize=3, linewidth=0, label="Buy")
+		ax[0].plot(df.index, sell_price, marker="v", color="red", markersize=3, linewidth=0, label="Sell")
+		plt.title("STOCH " + ticker.upper() + " (" + interval + ")")
+		ax[0].yaxis.set_major_formatter('${x:1.2f}')
+		# ax[1].set_title(f"{ticker} Stochastic Oscillator ({k}-day period), {interval}")
+		ax[1].set_ylim(-10, 110)
+		ax[1].plot(stoch["k"], color="tab:blue", linewidth=0.75)
+		ax[1].plot(stoch["d"], color="tab:orange", linewidth=0.75)
+		ax[1].axhline(80, color="tab:red", ls="--")
+		ax[1].axhline(20, color="tab:green", ls="--")
+		custom_lines = [
+			Line2D([0], [0], color="tab:blue", lw=2),
+			Line2D([0], [0], color="tab:orange", lw=2),
+			Line2D([0], [0], color="tab:red", lw=2),
+			Line2D([0], [0], color="tab:green", lw=2),
+		]
+		ax[1].legend(custom_lines, ["%K", "%D", "Overbought", "Oversold"], loc="best")
+		ax[0].set_xticks(xticks)
+		ax[1].set_xticks(xticks)
+		ax[1].set_xticklabels(period_ticks)
+		plt.xticks(rotation=45, horizontalalignment="right")
+		ax[0].legend()
+		plt.tight_layout()
+		ax[0].grid(color = 'black', linestyle = '--', linewidth = 0.5)
+		plt.grid(color = 'black', linestyle = '--', linewidth = 0.5)
+		if not os.path.isdir(os.getcwd()+"/stoch"):
+			os.mkdir(os.getcwd()+"/stoch")
+
+		plt.savefig(file)
+		plt.close()
+	return [file, period_ticks, n_buys, n_sells, perc_gain]
 
 intent = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 
@@ -507,6 +881,21 @@ def check_volatility():
 		except:
 			write_notification_to_log("[WARNING] Potential problem with volatiltity checks.")
 
+def check_daily_volatility():
+	if bot_started:
+		try:
+			TornStonksLive.process_daily_volatility(client)
+		except:
+			write_notification_to_log("[WARNING] Potential problem with volatiltity checks.")
+
+def check_weekly_volatility():
+	if bot_started:
+		try:
+			TornStonksLive.process_weekly_volatility(client)
+		except:
+			write_notification_to_log("[WARNING] Potential problem with volatiltity checks.")
+
+
 def suggests():
 	if bot_started:
 		try:
@@ -517,17 +906,19 @@ def suggests():
 # Initiate background thread and jobs
 enable_suggestions = True
 if enable_suggestions:
-	schedule.every().day.at("01:00:20").do(suggests)
-	schedule.every().day.at("05:00:20").do(suggests)
-	schedule.every().day.at("09:00:20").do(suggests)
-	schedule.every().day.at("13:00:20").do(suggests)
-	schedule.every().day.at("17:00:20").do(suggests)
-	schedule.every().day.at("21:00:20").do(suggests)
+	schedule.every().day.at("01:01:20").do(suggests)
+	schedule.every().day.at("05:01:20").do(suggests)
+	schedule.every().day.at("09:01:20").do(suggests)
+	schedule.every().day.at("13:01:20").do(suggests)
+	schedule.every().day.at("17:01:20").do(suggests)
+	schedule.every().day.at("21:01:20").do(suggests)
 
-enable_volatility = True
+enable_volatility = False
 if enable_volatility:
-	schedule.every().hour.at("00:30").do(check_volatility)
-	schedule.every().hour.at("30:30").do(check_volatility)
+	schedule.every().hour.at("00:45").do(check_volatility)
+	schedule.every().hour.at("30:45").do(check_volatility)
+	schedule.every().day.at("01:00:45").do(check_daily_volatility)
+	schedule.every().monday.at("01:00:45").do(check_weekly_volatility)
 
 schedule.every().minute.at(":15").do(get_latest_stocks)
 stop_run_continuously = run_continuously()
@@ -562,11 +953,16 @@ class TornStonksLive(discord.Client):
 		global bot_started
 		bot_started = True
 
-		for key in range(0, len(graph_channels["id"])):
-			channel = await client.fetch_channel(graph_channels["id"][key])
+		for key in range(0, len(suggestion_channels["id"])):
+			channel = await client.fetch_channel(suggestion_channels["id"][key])
 			pred_message = await channel.history(limit=1).flatten()
 			three = "3️⃣"
 			global not_more
+			# Avoid trying to get messages from completely empty channels
+			if len(pred_message) == 0:
+				continue
+			elif len(pred_message[0].reactions) == 0:
+				continue
 			if pred_message[0].reactions[0] == three:
 				not_more = True
 			else:
@@ -588,18 +984,22 @@ class TornStonksLive(discord.Client):
 		
 		tick = "[" + ticker + "]"
 		write_notification_to_log(tag_type + tick + ": $" + "{:,.3f}".format(value/1000000000) + "bn")
-		for key in range(0, len(channels["id"])):
-			if channels["alerts"][key] == "alerts":
-				channel = await client.fetch_channel(channels["id"][key])
-				sml = "<@&"+str(channels["small"][key])+">"
-				med = "<@&"+str(channels["medium"][key])+">"
-				lrg = "<@&"+str(channels["large"][key])+">"
+		for key in range(0, len(alert_channels["id"])):
+			channel = await client.fetch_channel(alert_channels["id"][key])
+			sml = "<@&"+str(alert_channels["small"][key])+">"
+			med = "<@&"+str(alert_channels["medium"][key])+">"
+			lrg = "<@&"+str(alert_channels["large"][key])+">"
+			tiny = "<@&"+str(alert_channels["tiny"][key])+">"
+			# Only send an alert if the channel ID is not zero
+			if alert_channels["tiny"][key] > 0 and value < (150 * 1000000000):
+				await channel.send(tag_type + tick + " - " + tiny, embed=embed)
+			else:
 				if value >= (750 * 1000000000):
-					await channel.send(sml + ", " + med + ", " + lrg + " - " + tag_type + tick, embed=embed)
+					await channel.send(tag_type + tick + " - " + sml + ", " + med + ", " + lrg, embed=embed)
 				elif value >= (450 * 1000000000):
-					await channel.send(sml + ", " + med + " - " + tag_type + tick, embed=embed)
-				else:
-					await channel.send(sml + " - " + tag_type + tick, embed=embed)
+					await channel.send(tag_type + tick + " - " + sml + ", " + med, embed=embed)
+				elif value >= (150 * 1000000000):
+					await channel.send(tag_type + tick + " - " + sml, embed=embed)
 
 	async def post_recommendations(self, up, down, stoch):
 		current_time = int(datetime.now(timezone.utc).timestamp()) + 14400
@@ -677,8 +1077,8 @@ class TornStonksLive(discord.Client):
 
 		global last_pred_id
 		last_pred_id = []
-		for key in range(0, len(graph_channels["id"])):
-			channel = await client.fetch_channel(graph_channels["id"][key])
+		for key in range(0, len(suggestion_channels["id"])):
+			channel = await client.fetch_channel(suggestion_channels["id"][key])
 			last_pred_id.append(await channel.send(embed=embed))
 			await last_pred_id[key].add_reaction("1️⃣")
 			await last_pred_id[key].add_reaction("2️⃣")
@@ -719,34 +1119,33 @@ class TornStonksLive(discord.Client):
 
 		global last_pred_id
 		last_pred_id = []
-		for key in range(0, len(graph_channels["id"])):
-			channel = await client.fetch_channel(graph_channels["id"][key])
+		for key in range(0, len(suggestion_channels["id"])):
+			channel = await client.fetch_channel(suggestion_channels["id"][key])
 			last_pred_id.append(await channel.send(embed=embed))
 			await last_pred_id[key].add_reaction("3️⃣")
 	
-	async def post_volatility(self, stocks):
+	async def post_volatility(self, stocks, timestr, limit, timestart, perc):
 		current_time = int(datetime.now(timezone.utc).timestamp())
-		last_m30 = current_time - (60 * 30)
-		time = datetime.utcfromtimestamp(last_m30).strftime('%H:%M:%S - %d/%m/%y') + " TCT"
-		embed = discord.Embed(title="Stocks Over 0.25% Volatility:")
+		last_frame = current_time - timestart
+		time = datetime.utcfromtimestamp(last_frame).strftime('%H:%M:%S - %d/%m/%y') + " TCT"
+		embed = discord.Embed(title="Stocks Over "+ perc + "% Volatility:")
 		embed_str = ""
 		for i in range(len(stocks)):
+			if i == limit:
+				break
 			ticker = stocks[i][0]
 			name = ""
 			for data in json_data["data"]:
 				if ticker.upper() == data["stock"]:
 					name = data["name"]
 					break
-			embed_str = embed_str + name + " (" + stocks[i][0].upper() + "): ±**" + "{:,.2f}".format(stocks[i][1]) + "%**\n"
-			if i > 9:
-				break
+			embed_str = embed_str + name + " (" + stocks[i][0].upper() + "): **" + "{:,.2f}".format(stocks[i][2]) + "%**\n"
 		embed.color = discord.Color.orange()
 		embed.set_thumbnail(url=stonks_png)
-		embed.add_field(name="Volatility for the last 30 minutes: " + time, value=embed_str)
-		for key in range(0, len(channels["id"])):
-			if channels["alerts"] == "alerts":
-				channel = await client.fetch_channel(channels["id"][key])
-				await channel.send(embed=embed)
+		embed.add_field(name="Volatility for the last " + timestr + time, value=embed_str)
+		for key in range(0, len(alert_channels["id"])):
+			channel = await client.fetch_channel(alert_channels["id"][key])
+			await channel.send(embed=embed)
 
 	def set_author(self, message, embed):
 		if message.author.avatar:
@@ -836,7 +1235,7 @@ class TornStonksLive(discord.Client):
 
 			# Sell event
 			if total_shares < total_shares_m1 and data["stock"] != "TCSE":
-				if value_total >= (150 * 1000000000):
+				if value_total >= (50 * 1000000000):
 					embed = discord.Embed(title= "Large Sell Off: " + data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 					embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
 					embed.color = discord.Color.red()
@@ -850,7 +1249,7 @@ class TornStonksLive(discord.Client):
 					client.loop.create_task(self.alert_roles(embed, value_total, "sell", data["stock"]))
 			# Buy event
 			elif total_shares > total_shares_m1 and data["stock"] != "TCSE":
-				if value_total >= (150 * 1000000000):
+				if value_total >= (50 * 1000000000):
 					embed = discord.Embed(title="Large Buy In: " + data["name"], url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(data["stock"])+"&tab=owned")
 					embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
 					embed.color = discord.Color.green()
@@ -867,7 +1266,7 @@ class TornStonksLive(discord.Client):
 		stock_data = {}
 		for i in range(len(stock_lut)):
 			ticker = stock_lut[i].lower()
-			data = predict_stocks(ticker, "m5", 48, False)
+			data = predict_stocks_v2(ticker, "m5", 48, False)
 			hlvc = data[1]
 
 			# Only add stocks that pass this criteria
@@ -881,12 +1280,13 @@ class TornStonksLive(discord.Client):
 		global best_rand
 		global not_more
 
-		if len(stocks) >= 4:
+		if len(stocks) >= 5:
 			not_more = False
 			up_tick = ""
 			down_tick = ""
 			up = 0
 			down = 0
+			# Handle best gain and loss separately to avoid duplicates
 			for k in range(len(stocks)):
 				ticker = stocks[k]
 
@@ -906,8 +1306,25 @@ class TornStonksLive(discord.Client):
 					up_tick = ticker
 				elif avg > up:
 					up = avg
-					up_tick = ticker			
+					up_tick = ticker
+
+			best_up = stock_data[up_tick]
+			# Global memory
+			best_gain = stock_data[up_tick]
 				
+			# Remove old entries from the list 
+			if up_tick in stock_data:
+				del stock_data[up_tick]
+
+			stocks = [*stock_data.keys()]
+			for k in range(len(stocks)):
+				ticker = stocks[k]
+
+				svm = stock_data[ticker]["svm"]["actual"]
+				lr = stock_data[ticker]["lr"]["actual"]
+				svml = stock_data[ticker]["svml"]["actual"]
+				avg = stock_data[ticker]["avg"]["actual"]
+
 				if svm < down:
 					down = svm
 					down_tick = ticker
@@ -921,16 +1338,11 @@ class TornStonksLive(discord.Client):
 					down = avg
 					down_tick = ticker
 
-			best_up = stock_data[up_tick]
 			best_down = stock_data[down_tick]
 			# Global memory
-			best_gain = stock_data[up_tick]
-			best_loss = stock_data[down_tick]
-			
+			best_loss = stock_data[down_tick]			
 		
 			# Remove old entries from the list 
-			if up_tick in stock_data:
-				del stock_data[up_tick]
 			if down_tick in stock_data:
 				del stock_data[down_tick]
 
@@ -965,16 +1377,63 @@ class TornStonksLive(discord.Client):
 		for i in range(len(stock_lut)):
 			ticker = stock_lut[i].lower()
 			try:
-				ohlc = get_tornsy_candlesticks(ticker, "m30", "2")
-				volatility = abs((float(ohlc["data"][1][3]) - float(ohlc["data"][1][2])) / float(ohlc["data"][1][2])) * 100
+				ohlc = get_stock_from_db(ticker, "m30", 2)
+				vola_real = ((ohlc["low"][0] - ohlc["high"][0]) / ohlc["high"][0]) * 100
+				volatility = abs(vola_real)
+
+				if ohlc["data"][0][1] < ohlc["data"][0][4]:
+					vola_real *= -1
 				if volatility >= 0.25:
-					stock_data.append((ticker, volatility))
+					stock_data.append((ticker, volatility, vola_real))
 			except:
 				write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
 		
 		if len(stock_data) > 0:
 			stock_data.sort(key=lambda tup: tup[1], reverse=True)
-			client.loop.create_task(self.post_volatility(stock_data))
+			client.loop.create_task(self.post_volatility(stock_data, "30 minutes: ", 15, 60 * 30, "0.25"))
+		else:
+			write_notification_to_log("[NOTICE] No stocks to post.")
+
+	def process_daily_volatility(self):
+		stock_data = []
+		for i in range(len(stock_lut)):
+			ticker = stock_lut[i].lower()
+			try:
+				ohlc = get_tornsy_candlesticks(ticker, "d1", 2)
+				volatility = abs((ohlc["low"][0] - ohlc["high"][0]) / ohlc["high"][0]) * 100
+				vola_real = ((ohlc["low"][0] - ohlc["high"][0]) / ohlc["high"][0]) * 100
+				if ohlc["data"][0][1] < ohlc["data"][0][4]:
+					vola_real *= -1
+				if volatility >= 0.75:
+					stock_data.append((ticker, volatility, vola_real))
+			except:
+				write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
+		
+		if len(stock_data) > 0:
+			stock_data.sort(key=lambda tup: tup[1], reverse=True)
+			client.loop.create_task(self.post_volatility(stock_data, "day: ", 20, 60*60*24, "0.75"))
+		else:
+			write_notification_to_log("[NOTICE] No stocks to post.")
+
+	def process_weekly_volatility(self):
+		stock_data = []
+		for i in range(len(stock_lut)):
+			ticker = stock_lut[i].lower()
+			try:
+				# This runs once a week, I think we'll be fine
+				ohlc = get_tornsy_candlesticks(ticker, "w1", "2")
+				volatility = abs((float(ohlc["data"][0][3]) - float(ohlc["data"][0][2])) / float(ohlc["data"][0][2])) * 100
+				vola_real = (float(ohlc["data"][0][3]) - float(ohlc["data"][0][2])) / float(ohlc["data"][0][2]) * 100
+				if ohlc["data"][0][1] < ohlc["data"][0][4]:
+					vola_real *= -1
+				if volatility >= 1.25:
+					stock_data.append((ticker, volatility, vola_real))
+			except:
+				write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
+		
+		if len(stock_data) > 0:
+			stock_data.sort(key=lambda tup: tup[1], reverse=True)
+			client.loop.create_task(self.post_volatility(stock_data, "week: ", 25, 60*60*24*7, "1.25"))
 		else:
 			write_notification_to_log("[NOTICE] No stocks to post.")
 
@@ -1043,6 +1502,14 @@ class TornStonksLive(discord.Client):
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 					return
 			if len(command) == 2:
+				if command[1].upper() == "CHD" or command[1].upper() == "CHED":
+					embed = discord.Embed(title="<:thonk:721869856508477460> Invalid Argument? <:thonk:721869856508477460>")
+					embed.add_field(name="Details:", value="I wonder what Ched's account balance looks like after Uncle's donor bender.")
+					self.set_author(message, embed)
+					embed.color = discord.Color.red()
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+					return
+
 				for data in json_data["data"]:
 					if data["stock"] == command[1].upper():
 						price = float(data["price"])
@@ -1574,115 +2041,13 @@ class TornStonksLive(discord.Client):
 
 			await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-	async def sma(self, message, prefix):
-		if message.content.startswith(prefix+"sma"):
-			command = message.content.split(" ")
-
-			test_lut = str(command[1].upper())
-			if test_lut not in stock_lut:
-				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				embed.add_field(name="Details:", value="Stock ticker is not found.")
-				self.set_author(message, embed)
-				embed.color = discord.Color.red()
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
-				return
-
-			ohlc_time = str(command[2].lower())
-			if ohlc_time not in valid_ohlc_times:
-				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				embed.add_field(name="Details:", value="Specified time period is not supported. Supported intervals: \n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1 w1 n1 y1`")
-				self.set_author(message, embed)
-				embed.color = discord.Color.red()
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
-				return
-
-			highest_average = -100
-			for key in range(3, len(command)):
-				try:
-					command[key] = int(command[key])
-					if command[key] > highest_average:
-						highest_average = command[key]
-				except:
-					err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-					err_embed.color = discord.Color.red()
-					self.set_author(message, err_embed)
-					err_embed.add_field(name="Details:", value="Numeric argument contains non numeric characters. Example command: `!sma sym 25 50 250`")
-					userdata["value"].append(0)
-					await message.channel.send(embed=err_embed, mention_author=False, reference=message)
-					return
-
-			if highest_average > 1000:
-				err_embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				err_embed.color = discord.Color.red()
-				self.set_author(message, err_embed)
-				err_embed.add_field(name="Details:", value="A numeric argument is greater than 1000 entires. Example command: `!sma sym 25 50 250`")
-				userdata["value"].append(0)
-				await message.channel.send(embed=err_embed, mention_author=False, reference=message)
-				return
-
-			if len(command) > 7:
-				embed = discord.Embed(title=":no_entry_sign: Too Many Arguments :no_entry_sign:")
-				embed.add_field(name="Details:", value="Too many SMA periods. Use a few less.")
-				self.set_author(message, embed)
-				embed.color = discord.Color.red()
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
-			elif len(command) < 4:
-				embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
-				embed.add_field(name="Details:", value="Missing one or more of the following, ticker, time period, SMA length. Example command: `!sma sym 25 50 250`")
-				self.set_author(message, embed)
-				embed.color = discord.Color.red()
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
-			else:
-				ohlc_data = get_tornsy_candlesticks(command[1].lower(), command[2].lower(), str(highest_average))
-
-				if not ohlc_data:
-					embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
-					embed.add_field(name="Details:", value="Missing one or more of the following, ticker, time period, SMA length. Example command: `!sma sym 25 50 250`")
-					self.set_author(message, embed)
-					embed.color = discord.Color.red()
-					await message.channel.send(embed=embed, mention_author=False, reference=message)
-					return
-
-				embed_str = ""
-				for key in range(3, len(command)):
-					avg = 0
-					ohlc_pos = 0
-					if command[2].lower() == "m1":
-						for item in range(highest_average-command[key], len(ohlc_data["data"])):
-							if int(command[key]) >= ohlc_pos:
-								avg += float(ohlc_data["data"][item][1])
-							ohlc_pos += 1
-						avg = avg / int(command[key])
-					else:
-						for item in range(highest_average-command[key], len(ohlc_data["data"])):
-							if int(command[key]) >= ohlc_pos:
-								avg += float(ohlc_data["data"][item][1])
-								avg += float(ohlc_data["data"][item][2])
-								avg += float(ohlc_data["data"][item][3])
-								avg += float(ohlc_data["data"][item][4])
-							ohlc_pos += 1
-						avg = avg / (int(command[key]) * 4)
-					embed_str = embed_str + "SMA " + str(command[key]) + ": " + "{:,.2f}".format(avg) + "\n"
-
-				ticker_name = ""
-				for data in json_data["data"]:
-					if data["stock"] == command[1].upper():
-						ticker_name = data["name"]
-						break
-				embed = discord.Embed(title="SMAs for: " + ticker_name, url="https://www.torn.com/page.php?sid=stocks&stockID="+lut_stock_id(command[1].upper())+"&tab=owned")
-				embed.color = discord.Colour.blue()
-				embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+command[1].upper()+".png")
-				embed.add_field(name="**Timeframe:** " + command[2].lower(), value=embed_str)
-				self.set_author(message, embed)
-				await message.channel.send(embed=embed, mention_author=False, reference=message)
-
 	async def predict(self, message, prefix):
 		if message.content.startswith(prefix+"predict"):
 			command = message.content.split(" ")
 
-			for key in range(0, len(channels["id"])):
-				if int(message.channel.id) == channels["id"][key]:
-					if channels["predict"][key] == "dm" and int(message.author.id) not in bot_admins:
+			for key in range(0, len(command_channels["id"])):
+				if int(message.channel.id) == command_channels["id"][key]:
+					if command_channels["predict"][key] == "dm" and int(message.author.id) not in bot_admins:
 						embed = discord.Embed(title=":no_entry_sign: Not Allowed In This Channel :no_entry_sign:")
 						embed.add_field(name="Details:", value="Prediction discussion must be relegated to it's own channel, or in Direct Messages.")
 						self.set_author(message, embed)
@@ -1690,7 +2055,7 @@ class TornStonksLive(discord.Client):
 						await message.channel.send(embed=embed, mention_author=False, reference=message)
 						return
 
-			if len(command) != 4:
+			if len(command) < 4:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
 				embed.add_field(name="Details:", value="Too few arguments. Example command:\n```!predict sym d1 31```")
 				self.set_author(message, embed)
@@ -1699,7 +2064,14 @@ class TornStonksLive(discord.Client):
 				return
 
 			test_lut = str(command[1].upper())
-			if test_lut not in stock_lut:
+			if test_lut == "CHD" or test_lut == "CHED":
+				embed = discord.Embed(title="<:thonk:721869856508477460> Invalid Argument? <:thonk:721869856508477460>")
+				embed.add_field(name="Details:", value="Unless you can read Chedburn's mind or have source code access, we're not predicting anything.")
+				self.set_author(message, embed)
+				embed.color = discord.Color.red()
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
+			elif test_lut not in stock_lut:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
 				embed.add_field(name="Details:", value="Stock ticker is not found.")
 				self.set_author(message, embed)
@@ -1707,9 +2079,9 @@ class TornStonksLive(discord.Client):
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 				return
 			ohlc_time = str(command[2].lower())
-			if ohlc_time not in valid_ohlc_times:
+			if ohlc_time not in intervals:
 				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
-				embed.add_field(name="Details:", value="Specified time period is not supported. Supported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1 w1`")
+				embed.add_field(name="Details:", value="Specified time period is not supported. Supported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1`")
 				self.set_author(message, embed)
 				embed.color = discord.Color.red()
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
@@ -1732,17 +2104,28 @@ class TornStonksLive(discord.Client):
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 				return
 
+			if len(command) == 5:
+				try:
+					command[4] = int(command[4])
+				except:
+					command[4] = 2000
+
+			await message.add_reaction("✅")
 			# TODO: Allow the command to turn graphs on and off
 			graph_return = ""
 			try:
-				graph_return = predict_stocks(command[1].lower(), command[2].lower(), int(command[3]), True)
+				if len(command) == 5:
+					graph_return = predict_stocks_v2(command[1].lower(), command[2].lower(), int(command[3]), True, samples=command[4])
+				else:
+					graph_return = predict_stocks_v2(command[1].lower(), command[2].lower(), int(command[3]), True)
+
 			except:
 				write_notification_to_log("[ERROR] PREDICT ERROR: " + message.content)
 				err_embed = discord.Embed(title="PREDICT ERROR:")
 				err_embed.set_thumbnail(url=notstonks_png)
 				self.set_author(message, err_embed)
 				err_embed.add_field(name="Details:", value="Something went wrong with generating prediction data.\nCommand used:\n\n```" + message.content + "```")
-				embed.color = discord.Color.red()
+				err_embed.color = discord.Color.red()
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
 				return
 			hlvc = graph_return[1]
@@ -1785,25 +2168,118 @@ class TornStonksLive(discord.Client):
 				conf_str = conf_str + " :warning:"
 			embed.add_field(name="Confidence:", value=conf_str)
 			embed.add_field(name="Time Scale:", value="From: **"+ticks[0] + " TCT**\nTo: **" + ticks[8] + " TCT**")
-			embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely it's predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.", inline=False)
+			embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely it's predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\nGraphs are for visual aid, not sound advice.", inline=False)
 			await message.channel.send(embed=embed, mention_author=False, reference=message)
 			await message.channel.send(file=discord.File(graph_return[0]))
+			return
 
-	async def testimonial(self, message, prefix):
-		if message.content == prefix+"testimonials":
-			thanks_str = ""
-			with open("thanks.md", "r") as thanks:
-				lines = thanks.readlines()
-				for line in lines:
-					thanks_str = thanks_str + line
+	async def overview(self, message, prefix):
+		if message.content.startswith(prefix+"overview"):
+			command = message.content.split(" ")
 
-			embed = discord.Embed(title="")
-			embed.color = discord.Color.purple()
+			for key in range(0, len(command_channels["id"])):
+				if int(message.channel.id) == command_channels["id"][key]:
+					if command_channels["predict"][key] == "dm" and int(message.author.id) not in bot_admins:
+						embed = discord.Embed(title=":no_entry_sign: Not Allowed In This Channel :no_entry_sign:")
+						embed.add_field(name="Details:", value="Overview discussion must be relegated to it's own channel, or in Direct Messages.")
+						self.set_author(message, embed)
+						embed.color = discord.Color.red()
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+						return
+
+			if len(command) < 3 or len(command) > 4:
+				print(len(command))
+				embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
+				embed.add_field(name="Details:", value="Too few/many arguments. Example command:\n```!overview d1 31 [up/down]```")
+				self.set_author(message, embed)
+				embed.color = discord.Color.red()
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
+
+			ohlc_time = str(command[1].lower())
+			if ohlc_time not in intervals:
+				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+				embed.add_field(name="Details:", value="Specified time period is not supported. Supported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1 w1`")
+				self.set_author(message, embed)
+				embed.color = discord.Color.red()
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
+			elif ohlc_time == "n1" or ohlc_time == "y1":
+				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+				embed.add_field(name="Details:", value="Specified time period is **currently** not supported. Supported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1 w1`")
+				self.set_author(message, embed)
+				embed.color = discord.Color.red()
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
+
+			try:
+				command[2] = int(command[2])
+			except:
+				embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+				embed.add_field(name="Details:", value="The multiples of your specified time period is not a number.")
+				self.set_author(message, embed)
+				embed.color = discord.Color.red()
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
+			
+			if len(command) == 4:
+				if command[3] not in ["up", "down"]:
+					embed = discord.Embed(title=":no_entry_sign: Invalid Argument :no_entry_sign:")
+					embed.add_field(name="Details:", value="The the optional argument must be up or down.")
+					self.set_author(message, embed)
+					embed.color = discord.Color.red()
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+					return
+
+			await message.add_reaction("✅")
+			stock_data = []
+			time_ticks = 1234
+			for i in range(len(stock_lut)):
+				ticker = stock_lut[i].lower()
+				try:
+					graph_return = predict_stocks_v2(ticker, command[1].lower(), command[2], False)
+					hlvc = graph_return[1]
+					m1_price = 0
+					for data in json_data["data"]:
+						if ticker.upper() == data["stock"]:
+							m1_price = float(data["price"])
+							break
+					# perc_price = float((price - price_h) / price_h) * 100
+					low_perc = float((m1_price - hlvc["avg"]["low"]) / hlvc["avg"]["low"]) * -100
+					high_perc = float((m1_price - hlvc["avg"]["high"]) / hlvc["avg"]["high"]) * -100
+					if time_ticks == 1234:
+						time_ticks = graph_return[3][8]
+
+					if len(command) == 4:
+						if command[3] == "up" and high_perc >= 0:		
+							stock_data.append((ticker.upper(), m1_price, hlvc["avg"]["low"], low_perc, hlvc["avg"]["high"], high_perc, abs(low_perc) + abs(high_perc), hlvc["avg"]["confidence"] * 100))
+						elif command[3] == "down" and high_perc < 0:
+							stock_data.append((ticker.upper(), m1_price, hlvc["avg"]["low"], low_perc, hlvc["avg"]["high"], high_perc, abs(low_perc) + abs(high_perc), hlvc["avg"]["confidence"] * 100))
+					else:
+						stock_data.append((ticker.upper(), m1_price, hlvc["avg"]["low"], low_perc, hlvc["avg"]["high"], high_perc, abs(low_perc) + abs(high_perc), hlvc["avg"]["confidence"] * 100))
+				except:
+					write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
+				
+			# Abandon efforts if there's no stocks
+			if len(stock_data) == 0:
+				return
+
+			stock_data.sort(key=lambda tup: tup[5], reverse=True)
+
+			embed_str = ""
+			for tup in range(8):
+				# Abandon adding things if we have less entries than 8
+				if len(stock_data) == tup:
+					break
+				#if i == 8:
+					#break
+				embed_str = embed_str + stock_data[tup][0] + " ($" + "{:,.2f}".format(stock_data[tup][1]) + "):\nLow: $" + "{:,.2f}".format(stock_data[tup][2]) + " (" + "{:.2f}".format(stock_data[tup][3]) + "%), High: $" + "{:,.2f}".format(stock_data[tup][4]) + " (" + "{:.2f}".format(stock_data[tup][5]) + "%)\nVolatility: " + "{:.2f}".format(stock_data[tup][6]) + "%, Confidence: " + "{:.2f}".format(stock_data[tup][7]) + "%\n\n"
+			embed = discord.Embed(title="Overview Valid Until: " + time_ticks + " TCT", )
+			embed.color = discord.Color.blue()
+			embed.add_field(name=time_ticks + " TCT", value=embed_str)
 			self.set_author(message, embed)
-			embed.add_field(name="Many Thanks To:", value=thanks_str)
-
 			await message.channel.send(embed=embed, mention_author=False, reference=message)
-
+	
 	def test_suggestions(self, message, prefix):
 		if message.content == prefix+"suggest":
 			global bot_admins
@@ -1816,6 +2292,123 @@ class TornStonksLive(discord.Client):
 			if int(message.author.id) in bot_admins:
 				self.process_volatility()
 
+	async def chedded(self, message, prefix):
+		if message.content.startswith(prefix+"chedded"):
+			await message.channel.send("If #chedded doesn't work, have we tried #blamebogie?", mention_author=False, reference=message)
+		elif message.content.startswith(prefix+"ched"):
+			await message.channel.send("The hidden hand strikes again in your misfortune; maybe it's a hint to buy DPs.", mention_author=False, reference=message)
+
+	async def system_message(self, message, prefix):
+		if message.content.startswith(prefix+"system_message"):
+			if int(message.author.id) in bot_admins:
+				new_msg = message.content.replace(prefix+"system_message ", "")
+				for key in range(0, len(alert_channels["id"])):
+					channel = await client.fetch_channel(alert_channels["id"][key])
+					await channel.send(new_msg)
+
+	async def backtest(self, message, prefix):
+		if message.content.startswith(prefix+"backtest"):
+			command = message.content.split(" ")
+			if command[1].lower() == "stoch":
+				if len(command) == 2:
+					embed = discord.Embed(title="Backtest Help for STOCH:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.purple()
+					embed.add_field(name="Syntax:", value="Optional command arguments that have a set default will be marked in `[square brackets]`.", inline=False)
+					embed.add_field(name="Example Command:", value="```\n!backtest stoch sym m15 2000 14 3 0.1 [true/false]\n```", inline=False)
+					embed.add_field(name="Ticker Argument:", value="Ticker of the stock you want to backtest against.", inline=False)
+					embed.add_field(name="Time Argument:", value="Time frame for the scale of.", inline=False)
+					embed.add_field(name="History Argument:", value="Number of previous candlesticks to load.\nDefault: `2000`", inline=False)
+					embed.add_field(name="K Argument:", value="Number of closed positions to use.\nDefault: `14`", inline=False)
+					embed.add_field(name="D Argument:", value="Number of previous K values to smooth. Cannot exceed the value of K.\nDefault: `3`", inline=False)
+					embed.add_field(name="Profit Percentage Argument:", value="Percentage to sell at when K and T reach their triggers.\nDefault: `0.1`", inline=False)
+					embed.add_field(name="Show Graph Argument:", value="Whether to display the backtesting graph.\nValid Values: `true / false`\nDefault: `true`", inline=False)
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+				elif len(command) < 8:
+					embed = discord.Embed(title="Error:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.red()
+					embed.add_field(inline=False, name="Details:", value="Invalid number of arguments, try the built in help: ```\n!backtest stoch\n```")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+				else:
+					# Error handler
+					if command[2].upper() not in stock_lut:
+						embed = discord.Embed(title="Invalid Argument:")
+						self.set_author(message, embed)
+						embed.color = discord.Color.red()
+						embed.add_field(inline=False, name="Details:", value="Stock ticker not found.")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+						return
+
+					if command[3].lower() not in intervals:
+						embed = discord.Embed(title="Invalid Argument:")
+						self.set_author(message, embed)
+						embed.color = discord.Color.red()
+						embed.add_field(inline=False, name="Details:", value="Interval not supported.\nSupported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1`")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+						return
+					
+					try:
+						command[4] = int(command[4])
+					except:
+						command[4] = 2000
+					
+					try:
+						command[5] = int(command[5])
+					except:
+						command[5] = 14
+
+					try:
+						command[6] = int(command[6])
+					except:
+						command[6] = 3
+					
+					# Prevent exceeding the value of K
+					if command[6] >= command[5]:
+						command[6] = 3
+					
+					try:
+						command[7] = float(command[7])
+					except:
+						command[7] = 0.1
+					if command[7] < 0:
+						command[7] = 0
+
+					await message.add_reaction("✅")
+					stoch_output = []
+					try:
+						if len(command) == 9:
+							if command[8].lower() == "false":
+								stoch_output = get_stoch(command[2].lower(), command[3].lower(), limit=command[4], k=command[5], t=command[6], profit_perc=command[7], render_graphs=False)
+						else:
+							stoch_output = get_stoch(command[2].lower(), command[3].lower(), limit=command[4], k=command[5], t=command[6], profit_perc=command[7], render_graphs=True)
+					except:
+						await message.add_reaction("❌")
+						return
+
+					embed = discord.Embed(title="Backtesting Results For STOCH:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.blue()
+					time_str = "From: **" + stoch_output[1][0] + " TCT**\n" + "To: **" + stoch_output[1][6] + " TCT **"
+					embed.add_field(name="Time Range:", value=time_str, inline=False)
+					setting_str = "Ticker: " + command[2].upper() + "\n"
+					setting_str += "Time: " + str(command[4]) + " x " + command[3] + "\n"
+					setting_str += "Sell Threshold: " + str(command[7]) + "%\n"
+					setting_str += "K: " + str(command[5]) + "\n"
+					setting_str += "D: " + str(command[6]) + "\n"
+					embed.add_field(name="Settings:", value=setting_str, inline=False)
+					misc_stats = "Percentage Gained: " + "{:.2f}".format(stoch_output[4]) + "%\n"
+					misc_stats += "Times Bought: " + "{:,}".format(stoch_output[2] + 1) + "\n"
+					misc_stats += "Times Sold: " + "{:,}".format(stoch_output[3]) + "\n"
+					embed.add_field(name="Misc Stats:", value=misc_stats, inline=False)
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+					if len(command) == 9:
+						if command[8].lower() == "true":
+							await message.channel.send(file=discord.File(stoch_output[0]))
+					else:
+						await message.channel.send(file=discord.File(stoch_output[0]))
+
+
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
 		if message.author == self.user:
@@ -1825,18 +2418,17 @@ class TornStonksLive(discord.Client):
 		if message.author.bot:
 			return
 
-		global channels
 		# Only respond in our designated channels to not shit up the place
 		# This includes DMs
-		if not int(message.channel.id) in channels["id"] and message.guild:
+		if not int(message.channel.id) in command_channels["id"] and message.guild:
 			return
 		
 		# Default for DMs, but not in servers
 		cmd_prefix = "!"
 		if message.guild:
-			for key in range(0, len(channels["id"])):
-				if int(message.channel.id) == channels["id"][key]:
-					cmd_prefix = channels["prefix"][key]
+			for key in range(0, len(command_channels["id"])):
+				if int(message.channel.id) == command_channels["id"][key]:
+					cmd_prefix = command_channels["prefix"][key]
 					break
 		
 		# Our command list (find a better system for this)
@@ -1850,10 +2442,12 @@ class TornStonksLive(discord.Client):
 		await self.notifications(message, cmd_prefix)
 		await self.portfolio(message, cmd_prefix)
 		await self.credits(message, cmd_prefix)
-		await self.sma(message, cmd_prefix)
 		await self.predict(message, cmd_prefix)
-		#await self.testimonial(message, cmd_prefix)
+		await self.overview(message, cmd_prefix)
 		self.test_suggestions(message, cmd_prefix)
+		await self.system_message(message, cmd_prefix)
+		await self.chedded(message, cmd_prefix)
+		await self.backtest(message, cmd_prefix)
 		await self.stop(message, cmd_prefix)
 
 	# Listen for automated reactions on suggestions
@@ -1916,7 +2510,7 @@ class TornStonksLive(discord.Client):
 					lowest_perc = 0
 					if best_rand["avg"]["actual"] < 0:
 						lowest_perc = -10000
-						if best_rand["svl"]["actual"] > lowest_perc and best_rand["svm"]["actual"] < 0:
+						if best_rand["svm"]["actual"] > lowest_perc and best_rand["svm"]["actual"] < 0:
 							lowest_perc = best_rand["svm"]["actual"]
 						if best_rand["svml"]["actual"] > lowest_perc and best_rand["svml"]["actual"] < 0:
 							lowest_perc = best_rand["svml"]["actual"]
@@ -1996,4 +2590,4 @@ class TornStonksLive(discord.Client):
 
 client = TornStonksLive(intents=intent)
 client.run(bot_token)
-# Code written below this command will never be executed
+# Code written below this comment will never be executed
