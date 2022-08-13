@@ -15,9 +15,12 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR, LinearSVR
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 import discord
 import sqlite3
+import ta
+import talib
 
 # Basic maths stuff
 
@@ -31,7 +34,6 @@ def clamp_(val, min, max):
 		return max
 	else:
 		return val
-	
 
 app_name = "TornStonks Live"
 bot_started = False
@@ -203,6 +205,41 @@ def write_user_alerts():
 	else:
 		write_notification_to_log("[FATAL] userdata memory corrupted or invalid, restart bot immediately.")
 
+# Note that params 1-5 are for read/write; memory, delay is during bot operation only.
+auto_userdata = {"id":[], "type":[], "stock":[], "timescale":[], "mute":[], "param1":[], "param2":[], "param3":[], "param4":[], "param5":[], "memory":[], "delay":[]}
+def read_auto_user_alerts():
+	with open("userdata_auto.csv", "r") as file:
+		lines = file.readlines()
+		for line in lines:
+			ln = line.strip()
+
+			# Useful header for people using CSV editors
+			if ln == "id,type,stock,timescale,mute,p1,p2,p3,p4,p5":
+				continue
+
+			data = ln.split(",")
+			# Skip incorrect data, minimum of 5 arguments:
+			if len(data) < 5:
+				write_notification_to_log("[WARNING] userdata_auto has incorrect data, skipping the malformed line.")
+				continue
+
+			if data[1] == "stoch":
+				# Ignore bad arguments
+				if len(data) < 7:
+					write_notification_to_log("[WARNING] userdata_auto (STOCH) has incorrect data, skipping the malformed line.")
+					continue
+				# Handle User ID
+				try:
+					data[0] = int(data[0])
+					
+				except:
+					write_notification_to_log("[WARNING] userdata_auto (STOCH) has incorrect data, skipping the malformed line.")
+					continue
+				
+				
+def write_auto_user_alerts():
+	print("bong")
+
 pp = pprint.PrettyPrinter(indent=4)
 
 tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
@@ -321,23 +358,23 @@ def get_stock_from_db(ticker, interval, limit=-1):
 	# Fix inverse sort
 	ohlc_data.sort(key=lambda tup: tup[0])
 
-	dt = {"date":[], "open":[], "high":[], "low":[], "close":[], "sma":[]}
+	dt = {"date":[], "Open":[], "High":[], "Low":[], "Close":[], "sma":[]}
 	
 	if interval == "m1":
 		for item in ohlc_data:
 			dt["date"].append(datetime.utcfromtimestamp(int(item[0])).strftime('%H:%M:%S %d/%m/%y'))
-			dt["open"].append(float(item[1]))
-			dt["high"].append(float(item[1]))
-			dt["low"].append(float(item[1]))
-			dt["close"].append(float(item[1]))
+			dt["Open"].append(float(item[1]))
+			dt["High"].append(float(item[1]))
+			dt["Low"].append(float(item[1]))
+			dt["Close"].append(float(item[1]))
 			dt["sma"].append(float(item[1]))
 	else:
 		for item in ohlc_data:
 			dt["date"].append(datetime.utcfromtimestamp(int(item[0])).strftime('%H:%M:%S %d/%m/%y'))
-			dt["open"].append(float(item[1]))
-			dt["high"].append(float(item[2]))
-			dt["low"].append(float(item[3]))
-			dt["close"].append(float(item[4]))
+			dt["Open"].append(float(item[1]))
+			dt["High"].append(float(item[2]))
+			dt["Low"].append(float(item[3]))
+			dt["Close"].append(float(item[4]))
 			dt["sma"].append(float(item[4]))
 	return dt
 
@@ -402,7 +439,7 @@ def import_from_tornsy(ticker, limit=-1):
 	if not ohlc_data:
 		return
 	
-	dt = {"date":[], "open":[], "high":[], "low":[], "close":[]}
+	dt = {"date":[], "Open":[], "High":[], "Low":[], "Close":[]}
 
 	# Only grab previous entries if there are exactly 2000 entries.
 	# Or limit >= 1
@@ -429,17 +466,17 @@ def import_from_tornsy(ticker, limit=-1):
 		for k in range(len(ohlcs)):
 			for i in range(len(ohlcs[k]["data"])):
 				dt["date"].append((ohlcs[k]["data"][i][0]))
-				dt["open"].append((ohlcs[k]["data"][i][1]))
-				dt["high"].append((ohlcs[k]["data"][i][1]))
-				dt["low"].append((ohlcs[k]["data"][i][1]))
-				dt["close"].append((ohlcs[k]["data"][i][1]))
+				dt["Open"].append((ohlcs[k]["data"][i][1]))
+				dt["High"].append((ohlcs[k]["data"][i][1]))
+				dt["Low"].append((ohlcs[k]["data"][i][1]))
+				dt["Close"].append((ohlcs[k]["data"][i][1]))
 
 		for item in ohlc_data["data"]:
 			dt["date"].append((item[0]))
-			dt["open"].append((item[1]))
-			dt["high"].append((item[1]))
-			dt["low"].append((item[1]))
-			dt["close"].append((item[1]))
+			dt["Open"].append((item[1]))
+			dt["High"].append((item[1]))
+			dt["Low"].append((item[1]))
+			dt["Close"].append((item[1]))
 
 	write_notification_to_log("[INFO]: " + ticker.lower() + " downloading completed.")
 
@@ -475,14 +512,14 @@ def import_from_tornsy(ticker, limit=-1):
 
 			cmd = "INSERT INTO " + interval + "(date, open, high, low, close) VALUES "
 			cmd += "(" + str(timestamp) + ", "
-			cmd += str(dt["open"][i]) + ", "
-			cmd += str(dt["high"][i]) + ", "
-			cmd += str(dt["low"][i]) + ", "
-			cmd += str(dt["close"][i]) + ") "
+			cmd += str(dt["Open"][i]) + ", "
+			cmd += str(dt["High"][i]) + ", "
+			cmd += str(dt["Low"][i]) + ", "
+			cmd += str(dt["Close"][i]) + ") "
 			cmd += "ON CONFLICT(date) DO UPDATE SET "
-			cmd += "high=IIF(" + str(dt["high"][i]) + " > high, " + str(dt["high"][i]) + ", high), "
-			cmd += "low=IIF(" + str(dt["low"][i]) + " < low, " + str(dt["low"][i]) + ", low), "
-			cmd += "close=" + str(dt["close"][i])
+			cmd += "high=IIF(" + str(dt["High"][i]) + " > high, " + str(dt["High"][i]) + ", high), "
+			cmd += "low=IIF(" + str(dt["Low"][i]) + " < low, " + str(dt["Low"][i]) + ", low), "
+			cmd += "close=" + str(dt["Close"][i])
 			try:
 				cur.execute(cmd)
 			except:
@@ -527,8 +564,9 @@ def predict_stocks_v2(ticker, interval, forecast, render_graphs, samples=2000):
 	dt = get_stock_from_db(ticker, interval, nsamples)
 
 	df = pd.DataFrame(data=dt)
-	df = df[["close"]]
-	df["prediction"] = df[["close"]].shift(-(forecast+1))
+	# Magic bullshit
+	df = df[["Close"]]
+	df["prediction"] = df[["Close"]].shift(-(forecast+1))
 
 	x = np.array(df.drop(["prediction"], axis=1))
 	x = x[:-(forecast+1)]
@@ -537,7 +575,7 @@ def predict_stocks_v2(ticker, interval, forecast, render_graphs, samples=2000):
 	y = y[:-(forecast+1)]
 	
 	test_size = 0.2
-	test_size = remap(len(dt["close"]), 1000, 16000, 0.4, 0.025)
+	test_size = remap(len(dt["Close"]), 1000, 16000, 0.4, 0.025)
 	test_size = clamp_(test_size, 0.025, 0.2)
 
 	x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size)
@@ -679,7 +717,7 @@ def predict_stocks_v2(ticker, interval, forecast, render_graphs, samples=2000):
 		elif interval[0] == "y":
 			period_ticks.append(datetime.utcfromtimestamp(current_time + int(((31536000 * (period * forecast)) / 9) * i)).strftime('%H:%M:%S %d/%m/%y'))
 	# Set PNG file name
-	file = os.getcwd()+"/graphs/"+ticker+" "+interval+" "+str(forecast)+" "+str(period_ticks[0].replace("/", "-").replace(":", "-")+".png")
+	file = os.getcwd()+"/graphs/predict "+ticker+" "+interval+" "+str(forecast)+" "+str(period_ticks[0].replace("/", "-").replace(":", "-")+".png")
 	
 	# Render the PNG graph
 	if render_graphs:
@@ -687,7 +725,7 @@ def predict_stocks_v2(ticker, interval, forecast, render_graphs, samples=2000):
 		sma_avg = []
 		sma_amt = 15
 		sma_len = (len(dt["sma"])) - (forecast + sma_amt)
-		sma_len_b = len(dt["close"]) + 1
+		sma_len_b = len(dt["Close"]) + 1
 		for f in range(forecast+1):
 			sma_val = 0
 			for i in range(sma_len+f, sma_len_b+f):
@@ -727,19 +765,19 @@ def predict_stocks_v2(ticker, interval, forecast, render_graphs, samples=2000):
 		plt.close()
 	return [file, hlvc, name, period_ticks]
 
-def get_stoch_osc(df, k, t):
+def get_stoch_osc(df, k, d):
 	copy = df.copy()
 
-	high_roll = copy["high"].rolling(k).max()
-	low_roll = copy["low"].rolling(k).min()
+	high_roll = copy["High"].rolling(k).max()
+	low_roll = copy["Low"].rolling(k).min()
 	
 	# Fast osc
-	num = copy["close"] - low_roll
+	num = copy["Close"] - low_roll
 	denom = high_roll - low_roll
 	copy["k"] = (num / denom) * 100
 
 	# Slow osc
-	copy["d"] = copy["k"].rolling(t).mean()
+	copy["d"] = copy["k"].rolling(d).mean()
 	return copy
 
 def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profit_perc=0.1):
@@ -751,7 +789,7 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 	sell_price = []
 	stoch_signal = []
 	signal = 0
-	sig_price = dt["close"][0]
+	sig_price = dt["Close"][0]
 	perc_gain = 0
 	n_buys = 0
 	n_sells = 0
@@ -759,31 +797,50 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 	for i in range(len(stoch["k"])):
 		if stoch["k"][i] < 20 and stoch["d"][i] < 20 and stoch["k"][i] < stoch["d"][i]:
 			if signal != 1:
-				buy_price.append(dt["close"][i])
+				buy_price.append(dt["Close"][i])
 				sell_price.append(np.nan)
 				signal = 1
-				sig_price = dt["close"][i]
+				sig_price = dt["Close"][i]
 				stoch_signal.append(signal)
 				n_buys += 1
 			else:
 				buy_price.append(np.nan)
 				sell_price.append(np.nan)
 				stoch_signal.append(0)
-		#elif stoch["k"][i] > 80 and stoch["d"][i] > 80 and stoch["k"][i] > stoch["d"][i]:
-		elif stoch["k"][i] > 80 and stoch["d"][i] > 80 and stoch["k"][i] > stoch["d"][i] and (sig_price * (1 + (profit_perc / 100))) < dt["close"][i]:
-			if signal != -1:
-				buy_price.append(np.nan)
-				sell_price.append(dt["close"][i])
-				signal = -1
-				perc = (float((dt["close"][i] - sig_price) / sig_price) * 100)
-				perc_gain += perc
-				sig_price = dt["close"][i]
-				stoch_signal.append(signal)
-				n_sells += 1
+		elif stoch["k"][i] > 80 and stoch["d"][i] > 80 and stoch["k"][i] > stoch["d"][i]:
+			if profit_perc > 0:
+				if (sig_price * (1 + (profit_perc / 100))) < dt["Close"][i]:
+					if signal != -1:
+						buy_price.append(np.nan)
+						sell_price.append(dt["Close"][i])
+						signal = -1
+						perc = (float((dt["Close"][i] - sig_price) / sig_price) * 100)
+						perc_gain += perc
+						sig_price = dt["Close"][i]
+						stoch_signal.append(signal)
+						n_sells += 1
+					else:
+						buy_price.append(np.nan)
+						sell_price.append(np.nan)
+						stoch_signal.append(0)
+				else:
+					buy_price.append(np.nan)
+					sell_price.append(np.nan)
+					stoch_signal.append(0)
 			else:
-				buy_price.append(np.nan)
-				sell_price.append(np.nan)
-				stoch_signal.append(0)
+				if signal != -1:
+					buy_price.append(np.nan)
+					sell_price.append(dt["Close"][i])
+					signal = -1
+					perc = (float((dt["Close"][i] - sig_price) / sig_price) * 100)
+					perc_gain += perc
+					sig_price = dt["Close"][i]
+					stoch_signal.append(signal)
+					n_sells += 1
+				else:
+					buy_price.append(np.nan)
+					sell_price.append(np.nan)
+					stoch_signal.append(0)
 		else:
 			buy_price.append(np.nan)
 			sell_price.append(np.nan)
@@ -796,7 +853,7 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 		else:
 			position.append(1)
 
-	for i in range(len(dt["close"])):
+	for i in range(len(dt["Close"])):
 		if stoch_signal[i] == 1:
 			position[i] = 1
 		elif stoch_signal[i] == -1:
@@ -831,12 +888,11 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 
 		plt.style.use("ggplot")
 		fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(6,6))
-		ax[0].plot(dt["close"], color="skyblue", linewidth=0.75, label="Price")
+		ax[0].plot(dt["Close"], color="skyblue", linewidth=0.75, label="Price")
 		ax[0].plot(df.index, buy_price, marker="^", color="green", markersize=3, linewidth=0, label="Buy")
 		ax[0].plot(df.index, sell_price, marker="v", color="red", markersize=3, linewidth=0, label="Sell")
 		plt.title("STOCH " + ticker.upper() + " (" + interval + ")")
 		ax[0].yaxis.set_major_formatter('${x:1.2f}')
-		# ax[1].set_title(f"{ticker} Stochastic Oscillator ({k}-day period), {interval}")
 		ax[1].set_ylim(-10, 110)
 		ax[1].plot(stoch["k"], color="tab:blue", linewidth=0.75)
 		ax[1].plot(stoch["d"], color="tab:orange", linewidth=0.75)
@@ -857,12 +913,189 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 		plt.tight_layout()
 		ax[0].grid(color = 'black', linestyle = '--', linewidth = 0.5)
 		plt.grid(color = 'black', linestyle = '--', linewidth = 0.5)
-		if not os.path.isdir(os.getcwd()+"/stoch"):
-			os.mkdir(os.getcwd()+"/stoch")
+		if not os.path.isdir(os.getcwd()+"/graphs"):
+			os.mkdir(os.getcwd()+"/graphs")
 
 		plt.savefig(file)
 		plt.close()
 	return [file, period_ticks, n_buys, n_sells, perc_gain]
+
+def get_ulcer(ticker, interval, render_graphs=True, limit=2000, window=14):
+	dt = get_stock_from_db(ticker, interval, limit+window)
+	df = pd.DataFrame(data=dt)
+	dt_orig = get_stock_from_db(ticker, interval, limit)
+
+	ulcer = ta.volatility.UlcerIndex(close=df["Close"], window=window)
+	# All of this to strip out the NaNs and normalise data, Python pls
+	ulcer_data = ulcer.ulcer_index()
+	ulcer_data = ulcer_data.dropna()
+	ulist = ulcer_data.values.tolist()
+
+	# Figure out timestamps
+	len_div = int(len(dt_orig["date"])/6)
+	period_ticks = []
+	period_ticks.append(dt_orig["date"][0])
+	period_ticks.append(dt_orig["date"][(len_div*1)-1-window])
+	period_ticks.append(dt_orig["date"][(len_div*2)-1-window])
+	period_ticks.append(dt_orig["date"][(len_div*3)-1-window])
+	period_ticks.append(dt_orig["date"][(len_div*4)-1-window])
+	period_ticks.append(dt_orig["date"][(len_div*5)-1-window])
+	period_ticks.append(dt_orig["date"][len(dt_orig["date"])-1-window])
+
+	current_time = int(datetime.now(timezone.utc).timestamp())
+	current_time = datetime.utcfromtimestamp(current_time).strftime('%H:%M:%S %d/%m/%y')
+	
+	# Set PNG file name
+	file = os.getcwd()+"/graphs/ulcer "+ticker+" "+interval+" " + str(window) + " "+str(current_time.replace("/", "-").replace(":", "-")+".png")
+	
+	# Render the PNG graph
+	if render_graphs:
+		# Make x-axis timestamps not suck
+		xticks = []
+		xticks.append(0)
+		for i in range(1, 7):
+			xticks.append(float(len(dt_orig["date"]) / 6) * i)
+
+		plt.style.use("ggplot")
+		fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(6,6))
+		ax[0].plot(dt_orig["Close"], color="skyblue", linewidth=0.75, label="Price")
+		plt.title("Ulcer Index " + ticker.upper() + " (" + interval + ")")
+		ax[0].yaxis.set_major_formatter('${x:1.2f}')
+		ax[1].plot(ulist, color="tab:orange", linewidth=0.75)
+		custom_lines = [
+			Line2D([0], [0], color="tab:orange", lw=2),
+		]
+		ax[1].legend(custom_lines, ["Ulcer Index"], loc="best")
+		ax[0].set_xticks(xticks)
+		ax[1].set_xticks(xticks)
+		ax[1].set_xticklabels(period_ticks)
+		plt.xticks(rotation=45, horizontalalignment="right")
+		ax[0].legend()
+		plt.tight_layout()
+		ax[0].grid(color = 'black', linestyle = '--', linewidth = 0.5)
+		plt.grid(color = 'black', linestyle = '--', linewidth = 0.5)
+		if not os.path.isdir(os.getcwd()+"/graphs"):
+			os.mkdir(os.getcwd()+"/graphs")
+
+		plt.savefig(file)
+		plt.close()
+	return [file, period_ticks]
+
+def append_str(p):
+	if p == 0:
+		return "previous candle."
+	else:
+		return "current candle."
+
+def pattern_scan(ticker, interval, mode, all_mode=False):
+	if interval not in ["h1", "h2", "h4", "h6", "h12", "d1"]:
+		return False
+
+	dt = get_stock_from_db(ticker, interval, 60)
+	df = pd.DataFrame(data=dt)
+ 
+	# Bullish scans
+	df["hammer"] = talib.CDLHAMMER(df.Open, df.High, df.Low, df.Close)
+	df["ihammer"] = talib.CDLINVERTEDHAMMER(df.Open, df.High, df.Low, df.Close)
+	df["engulfing"] = talib.CDLENGULFING(df.Open, df.High, df.Low, df.Close)
+	df["piercing"] = talib.CDLPIERCING(df.Open, df.High, df.Low, df.Close)
+	df["morning"] = talib.CDLMORNINGSTAR(df.Open, df.High, df.Low, df.Close)
+	df["soldier"] = talib.CDL3WHITESOLDIERS(df.Open, df.High, df.Low, df.Close)
+
+	# Bearish scans
+	df["hanging"] = talib.CDLHANGINGMAN(df.Open, df.High, df.Low, df.Close)
+	df["shooting"] = talib.CDLSHOOTINGSTAR(df.Open, df.High, df.Low, df.Close)
+	df["evening"] = talib.CDLEVENINGSTAR(df.Open, df.High, df.Low, df.Close)
+	df["crows"] = talib.CDL3BLACKCROWS(df.Open, df.High, df.Low, df.Close)
+	df["cloud"] = talib.CDLDARKCLOUDCOVER(df.Open, df.High, df.Low, df.Close)
+
+	rsi = talib.RSI(df.Close, timeperiod=14)
+	stoch = get_stoch_osc(df, 14, 3)
+
+	status_found = False
+	status_string = ""
+	if all_mode:
+		for stock in json_data["data"]:
+			if stock["stock"] == ticker.upper():
+				status_string = stock["name"]
+				break
+
+	bullish = "✅"
+	bearish = "❎"
+
+	if mode.lower() == "all" or mode.lower() == "bullish":
+		start = len(df.hammer)-2
+		end = len(df.hammer)
+		for i in range(start, end):
+			pos = i-end+2
+			if df.hammer[i] > 0:
+				status_found = True
+				status_string += "\n" + bullish +  " Hammer at " +	append_str(pos)
+			if df.ihammer[i] > 0:
+				status_found = True
+				status_string += "\n" + bullish +  " Inverted Hammer at " + append_str(pos)
+			if df.engulfing[i] > 0:
+				status_found = True
+				status_string += "\n" + bullish +  " Engulfing Hammer at " + append_str(pos)
+			if df.piercing[i] > 0:
+				status_found = True
+				status_string += "\n" + bullish +  " Piercing at " + append_str(pos)
+			if df.morning[i] > 0:
+				status_found = True
+				status_string += "\n" + bullish +  " Morningstar at " + append_str(pos)
+			if df.soldier[i] > 0:
+				status_found = True
+				status_string += "\n" + bullish +  " Three White Soldiers at " + append_str(pos)
+
+	if mode.lower() == "all" or mode.lower() == "bearish":
+		for i in range(len(df.hammer)-1, len(df.hammer)):
+			if df.hanging[i] > 0:
+				status_found = True
+				status_string += "\n" + bearish + " Hanging Man at " + append_str(pos)
+			if df.shooting[i] > 0:
+				status_found = True
+				status_string += "\n" + bearish + " Shooting Star at " + append_str(pos)
+			if df.evening[i] > 0:
+				status_found = True
+				status_string += "\n" + bearish + " Eveningstar at " + append_str(pos)
+			if df.crows[i] > 0:
+				status_found = True
+				status_string += "\n" + bearish + " Three Crows at " + append_str(pos)
+			if df.cloud[i] > 0:
+				status_found = True
+				status_string += "\n" + bearish + " Dark Cloud at " + append_str(pos)
+
+	if status_found:
+		r_pos = len(rsi)-1
+		status_string += "\nRSI: " + "{:.2f}".format(rsi[r_pos]) + ", "
+		if rsi[r_pos] < 30:
+			status_string += "Oversold Position."
+		elif rsi[r_pos] > 70:
+			status_string += "Overbought Position."
+		else:
+			status_string += "Neutral Position."
+		k_pos = len(stoch["k"])-1
+		d_pos = len(stoch["d"])-1
+		status_string += "\nSTOCH: %K " + "{:.2f}".format(stoch["k"][k_pos]) + ", %D " + "{:.2f}".format(stoch["d"][d_pos]) + ", "
+		if stoch["k"][k_pos] < 20 and stoch["d"][d_pos] < 20:
+			if stoch["k"][k_pos] < stoch["d"][d_pos]:
+				status_string += "Overbought Position."
+			else:
+				status_string += "Neutral Position."
+		elif stoch["k"][k_pos] > 80 and stoch["d"][d_pos] > 80:
+			if stoch["k"][k_pos] > stoch["d"][d_pos]:
+				status_string += "Oversold Position."
+			else:
+				status_string += "Neutral Position."
+		else:
+			status_string += "Neutral Position."
+
+		if all_mode:	
+			return status_string + "\n\n"
+		else:
+			return status_string
+	else:
+		return False
 
 intent = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 
@@ -913,7 +1146,7 @@ if enable_suggestions:
 	schedule.every().day.at("17:01:20").do(suggests)
 	schedule.every().day.at("21:01:20").do(suggests)
 
-enable_volatility = False
+enable_volatility = True
 if enable_volatility:
 	schedule.every().hour.at("00:45").do(check_volatility)
 	schedule.every().hour.at("30:45").do(check_volatility)
@@ -1378,18 +1611,18 @@ class TornStonksLive(discord.Client):
 			ticker = stock_lut[i].lower()
 			try:
 				ohlc = get_stock_from_db(ticker, "m30", 2)
-				vola_real = ((ohlc["low"][0] - ohlc["high"][0]) / ohlc["high"][0]) * 100
+				vola_real = ((ohlc["Low"][0] - ohlc["High"][0]) / ohlc["High"][0]) * 100
 				volatility = abs(vola_real)
 
-				if ohlc["data"][0][1] < ohlc["data"][0][4]:
+				if ohlc["Close"][0] > ohlc["Open"][0]:
 					vola_real *= -1
 				if volatility >= 0.25:
 					stock_data.append((ticker, volatility, vola_real))
 			except:
-				write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
+				write_notification_to_log("[WARNING] Local DB potentially unavailable?")
 		
 		if len(stock_data) > 0:
-			stock_data.sort(key=lambda tup: tup[1], reverse=True)
+			stock_data.sort(key=lambda tup: tup[2], reverse=True)
 			client.loop.create_task(self.post_volatility(stock_data, "30 minutes: ", 15, 60 * 30, "0.25"))
 		else:
 			write_notification_to_log("[NOTICE] No stocks to post.")
@@ -1399,18 +1632,18 @@ class TornStonksLive(discord.Client):
 		for i in range(len(stock_lut)):
 			ticker = stock_lut[i].lower()
 			try:
-				ohlc = get_tornsy_candlesticks(ticker, "d1", 2)
-				volatility = abs((ohlc["low"][0] - ohlc["high"][0]) / ohlc["high"][0]) * 100
-				vola_real = ((ohlc["low"][0] - ohlc["high"][0]) / ohlc["high"][0]) * 100
-				if ohlc["data"][0][1] < ohlc["data"][0][4]:
+				ohlc = get_stock_from_db(ticker, "d1", 2)
+				vola_real = ((ohlc["Low"][0] - ohlc["High"][0]) / ohlc["High"][0]) * 100
+				volatility = abs(vola_real)
+				if ohlc["Close"][0] > ohlc["Open"][0]:
 					vola_real *= -1
 				if volatility >= 0.75:
 					stock_data.append((ticker, volatility, vola_real))
 			except:
-				write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
+				write_notification_to_log("[WARNING] Local DB potentially unavailable?")
 		
 		if len(stock_data) > 0:
-			stock_data.sort(key=lambda tup: tup[1], reverse=True)
+			stock_data.sort(key=lambda tup: tup[2], reverse=True)
 			client.loop.create_task(self.post_volatility(stock_data, "day: ", 20, 60*60*24, "0.75"))
 		else:
 			write_notification_to_log("[NOTICE] No stocks to post.")
@@ -1429,10 +1662,10 @@ class TornStonksLive(discord.Client):
 				if volatility >= 1.25:
 					stock_data.append((ticker, volatility, vola_real))
 			except:
-				write_notification_to_log("[WARNING] Tornsy API potentially unavailable?")
+				write_notification_to_log("[WARNING] Tornsy potentially unavailable?")
 		
 		if len(stock_data) > 0:
-			stock_data.sort(key=lambda tup: tup[1], reverse=True)
+			stock_data.sort(key=lambda tup: tup[2], reverse=True)
 			client.loop.create_task(self.post_volatility(stock_data, "week: ", 25, 60*60*24*7, "1.25"))
 		else:
 			write_notification_to_log("[NOTICE] No stocks to post.")
@@ -2168,7 +2401,7 @@ class TornStonksLive(discord.Client):
 				conf_str = conf_str + " :warning:"
 			embed.add_field(name="Confidence:", value=conf_str)
 			embed.add_field(name="Time Scale:", value="From: **"+ticks[0] + " TCT**\nTo: **" + ticks[8] + " TCT**")
-			embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely it's predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\nGraphs are for visual aid, not sound advice.", inline=False)
+			embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely it's predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\n**Graphs are for visual aid, not sound advice. Trend is also the more realistic result.**", inline=False)
 			await message.channel.send(embed=embed, mention_author=False, reference=message)
 			await message.channel.send(file=discord.File(graph_return[0]))
 			return
@@ -2407,7 +2640,132 @@ class TornStonksLive(discord.Client):
 							await message.channel.send(file=discord.File(stoch_output[0]))
 					else:
 						await message.channel.send(file=discord.File(stoch_output[0]))
+			elif command[1].lower() == "ulcer":
+				if len(command) == 2:
+					embed = discord.Embed(title="Backtest Help for Ulcer Index:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.purple()
+					embed.add_field(name="Syntax:", value="Optional command arguments that have a set default will be marked in `[square brackets]`.", inline=False)
+					embed.add_field(name="Example Command:", value="```\n!backtest ulcer sym h1 2400 14\n```", inline=False)
+					embed.add_field(name="Ticker Argument:", value="Ticker of the stock you want to backtest against.", inline=False)
+					embed.add_field(name="Time Argument:", value="Time frame for the scale of.", inline=False)
+					embed.add_field(name="History Argument:", value="Number of previous candlesticks to load.\nDefault: `2000`", inline=False)
+					embed.add_field(name="Window:", value="Number of closed positions to use.\nDefault: `14`", inline=False)
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+				elif len(command) < 6:
+					embed = discord.Embed(title="Error:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.red()
+					embed.add_field(inline=False, name="Details:", value="Invalid number of arguments, try the built in help: ```\n!backtest ulcer\n```")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+				else:
+					# Error handler
+					if command[2].upper() not in stock_lut:
+						embed = discord.Embed(title="Invalid Argument:")
+						self.set_author(message, embed)
+						embed.color = discord.Color.red()
+						embed.add_field(inline=False, name="Details:", value="Stock ticker not found.")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+						return
 
+					if command[3].lower() not in intervals:
+						embed = discord.Embed(title="Invalid Argument:")
+						self.set_author(message, embed)
+						embed.color = discord.Color.red()
+						embed.add_field(inline=False, name="Details:", value="Interval not supported.\nSupported intervals:\n`m1 m5 m15 m30 h1 h2 h4 h6 h12 d1`")
+						await message.channel.send(embed=embed, mention_author=False, reference=message)
+						return
+					
+					try:
+						command[4] = int(command[4])
+					except:
+						command[4] = 2000
+					
+					try:
+						command[5] = int(command[5])
+					except:
+						command[5] = 14
+
+					await message.add_reaction("✅")
+					ulcer_output = []
+					try:
+						ulcer_output = get_ulcer(command[2].lower(), command[3].lower(), limit=command[4], window=command[5], render_graphs=True)
+					except:
+						await message.add_reaction("❌")
+						return
+
+					await message.channel.send(file=discord.File(ulcer_output[0]), mention_author=False, reference=message)
+					
+	async def search(self, message, prefix):		
+		if message.content.startswith(prefix+"search"):
+			command = message.content.split(" ")
+			if len(command) == 1:
+				embed = discord.Embed(title="Help for Pattern Search:")
+				self.set_author(message, embed)
+				embed.color = discord.Color.purple()
+				embed.add_field(name="Syntax:", value="Optional command arguments that have a set default will be marked in `[square brackets]`.", inline=False)
+				embed.add_field(name="Example Command:", value="```!search sym d1 bullish```", inline=False)
+				embed.add_field(name="Ticker Argument:", value="Ticker of the stock you want to search for. Use `all` to search all stocks.", inline=False)
+				embed.add_field(name="Time Argument:", value="The amount of time contained within a candlestick.\n`m1`, `m5`, `m15` and `m30` are not supported.")
+				embed.add_field(name="Type Argument:", value="The type of search you want to execute:\n\n`bullish` for stocks that are going to rise.\n`bearish` for stocks that are going to fall.\n`all` for all parameters.", inline=False)
+
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+			else:
+				if command[1].upper() not in stock_lut and command[1].lower() != "all":
+					embed = discord.Embed(title="Error:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.red()
+					embed.add_field(name="Details:", value="Invalid ticker.")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+					return
+
+				valid_times = ["h1", "h2", "h4", "h6", "h12", "d1"]
+				if command[2].lower() not in valid_times:
+					embed = discord.Embed(title="Error:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.red()
+					embed.add_field(name="Details:", value="Interval not supported.\n`m1`, `m5`, `m15` and `m30` are not supported.")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+					return
+
+				if command[3].lower() not in ["bearish", "bullish", "all"]:
+					embed = discord.Embed(title="Error:")
+					self.set_author(message, embed)
+					embed.color = discord.Color.red()
+					embed.add_field(name="Details:", value="Type of pattern search not supported.")
+					await message.channel.send(embed=embed, mention_author=False, reference=message)
+					return
+
+				pattern_results = ""
+				if command[1] == "all":
+					for stock in stock_lut:
+						scan_res = pattern_scan(stock.lower(), command[2].lower(), command[3].lower(), all_mode=True)
+						if scan_res != False:
+							pattern_results += scan_res
+				else:
+					pattern_results = pattern_scan(command[1].lower(), command[2].lower(), command[3].lower())
+
+				title_text = "Search Results for "
+				if command[1].lower() == "all":
+					title_text += "All Stocks - "
+				else:
+					for stock in json_data["data"]:
+						if stock["stock"] == command[1].upper():
+							title_text += stock["name"] + " - "
+							break
+
+				title_text += command[3].lower()
+
+				embed = discord.Embed(title=title_text)
+				self.set_author(message, embed)
+				embed.color = discord.Color.blue()
+				emb_text = ""
+				if pattern_results == "" or pattern_results == False:
+					emb_text = "No candlestick patterns matched your criteria."
+				else:
+					emb_text = pattern_results
+				embed.add_field(name="Results:", value=emb_text)
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
@@ -2448,6 +2806,7 @@ class TornStonksLive(discord.Client):
 		await self.system_message(message, cmd_prefix)
 		await self.chedded(message, cmd_prefix)
 		await self.backtest(message, cmd_prefix)
+		await self.search(message, cmd_prefix)
 		await self.stop(message, cmd_prefix)
 
 	# Listen for automated reactions on suggestions
