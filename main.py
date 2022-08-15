@@ -983,9 +983,35 @@ def get_ulcer(ticker, interval, render_graphs=True, limit=2000, window=14):
 
 def append_str(p):
 	if p == 0:
+		return "two candles ago."
+	elif p == 1:
 		return "previous candle."
 	else:
 		return "current candle."
+
+def bull_bear(value, pos, name, bull):
+	bullish = "📈"
+	bearish = "📉"
+	
+	name_str = "\n"
+	if bull:
+		if value > 100: # Confirmation
+			name_str += bullish + " " + name + " confirmed at "
+			return name_str + append_str(pos)
+		elif value > 0:
+			name_str += bullish + " " + name + " at "
+			return name_str + append_str(pos)
+		else:
+			return ""
+	else:
+		if value < -100: # Confirmation
+			name_str += bearish + " " + name + " confirmed at "
+			return name_str + append_str(pos)
+		elif value < 0:
+			name_str += bearish + " " + name + " at "
+			return name_str + append_str(pos)
+		else:
+			return ""
 
 def pattern_scan(ticker, interval, mode, all_mode=False):
 	if interval not in ["h1", "h2", "h4", "h6", "h12", "d1"]:
@@ -995,101 +1021,97 @@ def pattern_scan(ticker, interval, mode, all_mode=False):
 	df = pd.DataFrame(data=dt)
  
 	# Bullish scans
-	df["hammer"] = talib.CDLHAMMER(df.Open, df.High, df.Low, df.Close)
-	df["ihammer"] = talib.CDLINVERTEDHAMMER(df.Open, df.High, df.Low, df.Close)
-	df["engulfing"] = talib.CDLENGULFING(df.Open, df.High, df.Low, df.Close)
-	df["piercing"] = talib.CDLPIERCING(df.Open, df.High, df.Low, df.Close)
-	df["morning"] = talib.CDLMORNINGSTAR(df.Open, df.High, df.Low, df.Close)
-	df["soldier"] = talib.CDL3WHITESOLDIERS(df.Open, df.High, df.Low, df.Close)
+	if mode.lower() in ["all", "bullish"]:
+		df["hammer"] = talib.CDLHAMMER(df.Open, df.High, df.Low, df.Close)
+		df["ihammer"] = talib.CDLINVERTEDHAMMER(df.Open, df.High, df.Low, df.Close)
+		df["engulfing"] = talib.CDLENGULFING(df.Open, df.High, df.Low, df.Close)
+		df["piercing"] = talib.CDLPIERCING(df.Open, df.High, df.Low, df.Close)
+		df["morning"] = talib.CDLMORNINGSTAR(df.Open, df.High, df.Low, df.Close)
+		df["soldier"] = talib.CDL3WHITESOLDIERS(df.Open, df.High, df.Low, df.Close)
+		df["onneck"] = talib.CDLONNECK(df.Open, df.High, df.Low, df.Close)
 
 	# Bearish scans
-	df["hanging"] = talib.CDLHANGINGMAN(df.Open, df.High, df.Low, df.Close)
-	df["shooting"] = talib.CDLSHOOTINGSTAR(df.Open, df.High, df.Low, df.Close)
-	df["evening"] = talib.CDLEVENINGSTAR(df.Open, df.High, df.Low, df.Close)
-	df["crows"] = talib.CDL3BLACKCROWS(df.Open, df.High, df.Low, df.Close)
-	df["cloud"] = talib.CDLDARKCLOUDCOVER(df.Open, df.High, df.Low, df.Close)
+	if mode.lower() in ["all", "bearish"]:
+		df["hanging"] = talib.CDLHANGINGMAN(df.Open, df.High, df.Low, df.Close)
+		df["shooting"] = talib.CDLSHOOTINGSTAR(df.Open, df.High, df.Low, df.Close)
+		df["evening"] = talib.CDLEVENINGSTAR(df.Open, df.High, df.Low, df.Close)
+		df["crows"] = talib.CDL3BLACKCROWS(df.Open, df.High, df.Low, df.Close)
+		df["cloud"] = talib.CDLDARKCLOUDCOVER(df.Open, df.High, df.Low, df.Close)
 
-	rsi = talib.RSI(df.Close, timeperiod=14)
-	stoch = get_stoch_osc(df, 14, 3)
+	# Contains both bearish and bullish signals
+	if mode.lower() in ["all", "bearish", "bullish"]:
+		df["inside"] = talib.CDL3INSIDE(df.Open, df.High, df.Low, df.Close)
+		df["outside"] = talib.CDL3OUTSIDE(df.Open, df.High, df.Low, df.Close)
+		df["harami"] = talib.CDLHARAMI(df.Open, df.High, df.Low, df.Close)
+		df["marubozu"] = talib.CDLMARUBOZU(df.Open, df.High, df.Low, df.Close)
+		df["counter"] = talib.CDLCOUNTERATTACK(df.Open, df.High, df.Low, df.Close)
 
-	status_found = False
 	status_string = ""
+	stock_name = ""
 	if all_mode:
 		for stock in json_data["data"]:
 			if stock["stock"] == ticker.upper():
-				status_string = stock["name"]
+				status_string = "__" + stock["name"] + "__"
+				stock_name = "__" + stock["name"] + "__"
 				break
 
-	bullish = "✅"
-	bearish = "❎"
+	start = len(df.Close)-3
+	end = len(df.Close)
+	for i in range(start, end):
+		pos = i-end+3
+		if mode.lower() in ["all", "bullish"]:
+			status_string += bull_bear(df.hammer[i], pos, "Hammer", True)
+			status_string += bull_bear(df.ihammer[i], pos, "Inverted Hammer", True)
+			status_string += bull_bear(df.engulfing[i], pos, "Engulfing Hammer", True)
+			status_string += bull_bear(df.piercing[i], pos, "Piercing", True)
+			status_string += bull_bear(df.morning[i], pos, "Morningstar", True)
+			status_string += bull_bear(df.soldier[i], pos, "Three White Soldiers", True)
+			status_string += bull_bear(df.onneck[i], pos, "On-Neck", True)
+			status_string += bull_bear(df.inside[i], pos, "Three Inside Up", True)
+			status_string += bull_bear(df.outside[i], pos, "Three Outside Up", True)
+			status_string += bull_bear(df.harami[i], pos, "Bullish Harami", True)
+			status_string += bull_bear(df.marubozu[i], pos, "White Marubozu", True)
+			status_string += bull_bear(df.counter[i], pos, "Bullish Counterattack", True)
+		
+		if mode.lower() in ["all", "bearish"]:
+			status_string += bull_bear(df.hanging[i], pos, "Hanging Man", False)
+			status_string += bull_bear(df.shooting[i], pos, "Shooting Star", False)
+			status_string += bull_bear(df.evening[i], pos, "Eveningstar", False)
+			status_string += bull_bear(df.crows[i], pos, "Three Black Crows", False)
+			status_string += bull_bear(df.cloud[i], pos, "Dark Cloud Cover", False)
+			status_string += bull_bear(df.inside[i], pos, "Three Inside Down", False)
+			status_string += bull_bear(df.outside[i], pos, "Three Inside Down!sear", False)
+			status_string += bull_bear(df.harami[i], pos, "Bearish Harami", False)
+			status_string += bull_bear(df.marubozu[i], pos, "Black Marubozu", False)
+			status_string += bull_bear(df.counter[i], pos, "Bearish Counterattack", False)
 
-	if mode.lower() == "all" or mode.lower() == "bullish":
-		start = len(df.hammer)-2
-		end = len(df.hammer)
-		for i in range(start, end):
-			pos = i-end+2
-			if df.hammer[i] > 0:
-				status_found = True
-				status_string += "\n" + bullish +  " Hammer at " +	append_str(pos)
-			if df.ihammer[i] > 0:
-				status_found = True
-				status_string += "\n" + bullish +  " Inverted Hammer at " + append_str(pos)
-			if df.engulfing[i] > 0:
-				status_found = True
-				status_string += "\n" + bullish +  " Engulfing Hammer at " + append_str(pos)
-			if df.piercing[i] > 0:
-				status_found = True
-				status_string += "\n" + bullish +  " Piercing at " + append_str(pos)
-			if df.morning[i] > 0:
-				status_found = True
-				status_string += "\n" + bullish +  " Morningstar at " + append_str(pos)
-			if df.soldier[i] > 0:
-				status_found = True
-				status_string += "\n" + bullish +  " Three White Soldiers at " + append_str(pos)
+	if mode.lower() in ["all", "osc"]:
+		oversol = "\n📈"
+		overbuy = "\n📉"
 
-	if mode.lower() == "all" or mode.lower() == "bearish":
-		for i in range(len(df.hammer)-1, len(df.hammer)):
-			if df.hanging[i] > 0:
-				status_found = True
-				status_string += "\n" + bearish + " Hanging Man at " + append_str(pos)
-			if df.shooting[i] > 0:
-				status_found = True
-				status_string += "\n" + bearish + " Shooting Star at " + append_str(pos)
-			if df.evening[i] > 0:
-				status_found = True
-				status_string += "\n" + bearish + " Eveningstar at " + append_str(pos)
-			if df.crows[i] > 0:
-				status_found = True
-				status_string += "\n" + bearish + " Three Crows at " + append_str(pos)
-			if df.cloud[i] > 0:
-				status_found = True
-				status_string += "\n" + bearish + " Dark Cloud at " + append_str(pos)
+		rsi = talib.RSI(df.Close, timeperiod=14)
+		stoch = get_stoch_osc(df, 14, 3)
 
-	if status_found:
 		r_pos = len(rsi)-1
-		status_string += "\nRSI: " + "{:.2f}".format(rsi[r_pos]) + ", "
+		rsi_str = " RSI: " + "{:.2f}".format(rsi[r_pos]) + ", "
 		if rsi[r_pos] < 30:
-			status_string += "Oversold Position."
+			status_string += oversol + rsi_str + "Oversold Position."
 		elif rsi[r_pos] > 70:
-			status_string += "Overbought Position."
-		else:
-			status_string += "Neutral Position."
+			status_string += overbuy + rsi_str + "Overbought Position."
+
 		k_pos = len(stoch["k"])-1
 		d_pos = len(stoch["d"])-1
-		status_string += "\nSTOCH: %K " + "{:.2f}".format(stoch["k"][k_pos]) + ", %D " + "{:.2f}".format(stoch["d"][d_pos]) + ", "
+		sto_str = " STOCH: %K " + "{:.2f}".format(stoch["k"][k_pos]) + ", %D " + "{:.2f}".format(stoch["d"][d_pos]) + ", "
+		
 		if stoch["k"][k_pos] < 20 and stoch["d"][d_pos] < 20:
 			if stoch["k"][k_pos] < stoch["d"][d_pos]:
-				status_string += "Overbought Position."
-			else:
-				status_string += "Neutral Position."
+				status_string += oversol + sto_str + "Oversold Position."
 		elif stoch["k"][k_pos] > 80 and stoch["d"][d_pos] > 80:
 			if stoch["k"][k_pos] > stoch["d"][d_pos]:
-				status_string += "Oversold Position."
-			else:
-				status_string += "Neutral Position."
-		else:
-			status_string += "Neutral Position."
+				status_string += overbuy + sto_str + "Overbought Position."
 
+	# Prevent 
+	if status_string not in ["", stock_name]:
 		if all_mode:	
 			return status_string + "\n\n"
 		else:
@@ -2707,10 +2729,10 @@ class TornStonksLive(discord.Client):
 				embed.add_field(name="Example Command:", value="```!search sym d1 bullish```", inline=False)
 				embed.add_field(name="Ticker Argument:", value="Ticker of the stock you want to search for. Use `all` to search all stocks.", inline=False)
 				embed.add_field(name="Time Argument:", value="The amount of time contained within a candlestick.\n`m1`, `m5`, `m15` and `m30` are not supported.")
-				embed.add_field(name="Type Argument:", value="The type of search you want to execute:\n\n`bullish` for stocks that are going to rise.\n`bearish` for stocks that are going to fall.\n`all` for all parameters.", inline=False)
+				embed.add_field(name="Type Argument:", value="The type of search you want to execute:\n\n`bullish` for stocks that are going to rise.\n`bearish` for stocks that are going to fall.\n`osc` For RSI and STOCH oscillators in oversold and overbought conditions.\n`all` for all parameters.", inline=False)
 
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
-			else:
+			elif len(command) == 4:
 				if command[1].upper() not in stock_lut and command[1].lower() != "all":
 					embed = discord.Embed(title="Error:")
 					self.set_author(message, embed)
@@ -2728,7 +2750,7 @@ class TornStonksLive(discord.Client):
 					await message.channel.send(embed=embed, mention_author=False, reference=message)
 					return
 
-				if command[3].lower() not in ["bearish", "bullish", "all"]:
+				if command[3].lower() not in ["bearish", "bullish", "osc", "all"]:
 					embed = discord.Embed(title="Error:")
 					self.set_author(message, embed)
 					embed.color = discord.Color.red()
@@ -2741,7 +2763,10 @@ class TornStonksLive(discord.Client):
 					for stock in stock_lut:
 						scan_res = pattern_scan(stock.lower(), command[2].lower(), command[3].lower(), all_mode=True)
 						if scan_res != False:
-							pattern_results += scan_res
+							if len(pattern_results + scan_res) >= 1024:
+								break
+							else:
+								pattern_results += scan_res
 				else:
 					pattern_results = pattern_scan(command[1].lower(), command[2].lower(), command[3].lower())
 
@@ -2766,6 +2791,13 @@ class TornStonksLive(discord.Client):
 					emb_text = pattern_results
 				embed.add_field(name="Results:", value=emb_text)
 				await message.channel.send(embed=embed, mention_author=False, reference=message)
+			else:
+				embed = discord.Embed(title="Error:")
+				self.set_author(message, embed)
+				embed.color = discord.Color.red()
+				embed.add_field(name="Details:", value="Missing required arguments.")
+				await message.channel.send(embed=embed, mention_author=False, reference=message)
+				return
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever
