@@ -5,6 +5,7 @@ import tsl_bot.commands.backtest as cmd_backtest
 import tsl_bot.commands.bonus as cmd_bonus
 import tsl_bot.commands.candle_search as cmd_candle_search
 import tsl_bot.commands.credits as cmd_credits
+import tsl_bot.commands.forget as cmd_forget
 import tsl_bot.commands.overview as cmd_overview
 import tsl_bot.commands.paper as cmd_paper
 import tsl_bot.commands.portfolio as cmd_portfolio
@@ -15,6 +16,7 @@ import tsl_bot.commands.stock as cmd_stock
 # Known commands with their names
 
 commands = []
+slash_cmd = []
 
 # Tuple guide:
 # ("command_name", func.here, True if the function is async, False if not, True to show in !help, False to hide)
@@ -33,6 +35,7 @@ commands.append(("alerts", cmd_price_alerts.notifications, True, True))
 commands.append(("backtest", cmd_backtest.backtest, True, True))
 commands.append(("credits", cmd_credits.credits, True, True))
 commands.append(("down", cmd_price_alerts.alerts, True, True))
+commands.append(("forget", cmd_forget.forget, True, True))
 commands.append(("loss", cmd_price_alerts.alerts, True, True))
 commands.append(("overview", cmd_overview.overview, True, True))
 commands.append(("paper_buy", cmd_paper.buy, True, True))
@@ -61,3 +64,5 @@ async def help(self, message, prefix):
 	await message.channel.send(embed=embed, mention_author=False, reference=message)
 
 commands.append(("help", help, True, False))
+
+slash_cmd.append("help")

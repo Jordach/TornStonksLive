@@ -34,32 +34,32 @@ class Bot(discord.Client):
 
 	async def on_ready(self):
 		await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Torn City Stocks"))
-
-		for key in range(0, len(config.suggestion_channels["id"])):
-			channel = await self.fetch_channel(config.suggestion_channels["id"][key])
-			pred_message = await channel.history(limit=1).flatten()
-			three = "3️⃣"
-			global not_more
-			# Avoid trying to get messages from completely empty channels
-			if len(pred_message) == 0:
-				continue
-			elif len(pred_message[0].reactions) == 0:
-				continue
-			if pred_message[0].reactions[0] == three:
-				not_more = True
-			else:
-				not_more = False
-			global last_pred_id
-			last_pred_id = []
-			last_pred_id.append(pred_message[0])
+		if config.enable_suggestions:
+			for key in range(0, len(config.suggestion_channels["id"])):
+				channel = await self.fetch_channel(config.suggestion_channels["id"][key])
+				pred_message = await channel.history(limit=1).flatten()
+				three = "3️⃣"
+				global not_more
+				# Avoid trying to get messages from completely empty channels
+				if len(pred_message) == 0:
+					continue
+				elif len(pred_message[0].reactions) == 0:
+					continue
+				if pred_message[0].reactions[0] == three:
+					not_more = True
+				else:
+					not_more = False
+				global last_pred_id
+				last_pred_id = []
+				last_pred_id.append(pred_message[0])
 		tsl_lib.util.write_log("[STARTUP] TornStonks Live started.", tsl_lib.util.current_date())
 		config.bot_started = True
 
-	async def on_raw_reaction_add(self, payload):
-		bot_suggest.suggest_react_add(self, payload)
+	#async def on_raw_reaction_add(self, payload):
+		#await bot_suggest.suggest_react_add(self, payload)
 	
-	async def on_raw_reaction_remove(self, payload):
-		bot_suggest.suggest_react_remove(self, payload)
+	#async def on_raw_reaction_remove(self, payload):
+		#await bot_suggest.suggest_react_remove(self, payload)
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever

@@ -103,17 +103,18 @@ def import_from_tornsy(ticker, intervals, limit=-1):
 				dt["Low"].append((ohlcs[k]["data"][i][1]))
 				dt["Close"].append((ohlcs[k]["data"][i][1]))
 
-		for item in ohlc_data["data"]:
-			dt["date"].append((item[0]))
-			dt["Open"].append((item[1]))
-			dt["High"].append((item[1]))
-			dt["Low"].append((item[1]))
-			dt["Close"].append((item[1]))
+	for item in ohlc_data["data"]:
+		dt["date"].append((item[0]))
+		dt["Open"].append((item[1]))
+		dt["High"].append((item[1]))
+		dt["Low"].append((item[1]))
+		dt["Close"].append((item[1]))
 
 	for i in range(len(dt["date"])):
 		for interval in intervals:
 			try:
 				cur.execute("CREATE TABLE " + interval + " (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
+				con.commit()
 			except:
 				pass
 

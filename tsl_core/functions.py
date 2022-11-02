@@ -52,7 +52,8 @@ stock_lut = [
 	"MCS",
 	"WLT",
 	"TCC",
-	"ASS"
+	"ASS",
+	"CBD"
 ]
 
 # Logging and utilities

@@ -25,6 +25,8 @@ rand_not_more = False
 last_pred_id = []
 json_data = ""
 
+enable_suggestions = False
+
 intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 # Add this line to intents with discord.py >= 2.0
 #message_content=True

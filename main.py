@@ -1,7 +1,6 @@
 import requests
 import json
 import schedule
-import timeit
 
 import tsl_config.config as config
 import tsl_core.functions as tsl_lib
@@ -22,18 +21,17 @@ def backfill_db():
 	n_times = -1
 	for ticker in tsl_lib.stock_lut:
 		tsl_lib.util.write_log("[INFO]: Downloading " + ticker + ".", current_day)
-		tsl_lib.db.import_from_tornsy(ticker, tsl_lib.stock_lut, limit=n_times)
+		tsl_lib.db.import_from_tornsy(ticker, tsl_lib.intervals, limit=n_times)
 		tsl_lib.util.write_log("[INFO]: " + ticker + " added to DB.", current_day)
 
 backfill_db()
-
 
 tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
 tornsy_data =""
 try:
 	tornsy_data = requests.get(tornsy_api_address)
 except:
-	raise Exception("Tornsy probably timed out.")
+	raise Exception("Tornsy probably timed out - you likely have no network access.")
 
 def get_latest_stocks():
 	global current_day
@@ -47,7 +45,7 @@ def get_latest_stocks():
 
 	if tornsy_data.status_code == 200:
 		config.json_data = json.loads(tornsy_data.text)
-		tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.util.intervals)
+		tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.intervals)
 		if config.bot_started:
 			tsl_bot.Bot.process_stockdata(client)
 	else:
