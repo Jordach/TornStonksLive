@@ -1,4 +1,6 @@
 import discord
+from discord import app_commands
+
 import tsl_core.functions as tsl_lib
 import tsl_config.config as config
 
@@ -32,7 +34,16 @@ class Bot(discord.Client):
 	set_author = author.set_author
 	set_author_notif = author.set_author_notif
 
+	# Slash command handling
+	def __init__(self, *, intents: config.intents):
+		super().__init__(intents=intents)
+		self.tree = app_commands.CommandTree(self)
+		
+	
 	async def on_ready(self):
+		await self.wait_until_ready()
+		#await self.tree.sync()
+
 		await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Torn City Stocks"))
 		if config.enable_suggestions:
 			for key in range(0, len(config.suggestion_channels["id"])):

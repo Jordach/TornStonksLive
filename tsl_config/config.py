@@ -17,6 +17,9 @@ alert_channels = {"id":[], "small":[], "medium":[], "large":[], "tiny":[]}
 command_channels = {"id":[], "prefix":[], "predict":[]}
 suggestion_channels = {"id":[]}
 bot_admins = []
+verification_keys = []
+event_key = ""
+client = ""
 
 best_gain = ""
 best_loss = ""
@@ -27,9 +30,7 @@ json_data = ""
 
 enable_suggestions = False
 
-intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
-# Add this line to intents with discord.py >= 2.0
-#message_content=True
+intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True, message_content=True)
 
 def read_token():
 	global bot_token
@@ -197,3 +198,39 @@ def read_suggest_json():
 			best_rand = json.load(file)
 	else:
 		tsl_lib.util.write_log("[WARNING] best_rand.json not found - ignoring", tsl_lib.util.current_date())
+
+def read_torn_api_keys():
+	global verification_keys
+	with open("verify_api_keys.conf", "r") as verify_keys:
+		lines = verify_keys.readlines()
+		for line in lines:
+			# Handle comments
+			if line.strip().startswith("#"):
+				continue
+		
+			data = line.strip()
+			verification_keys.append(data)
+
+	if len(verification_keys) == 0:
+		with open("verify_api_keys.conf", "r") as file:
+			file.write("#Torn API keys go in here.")
+		raise Exception("No API keys file for verifying users for TornStonks Gold module was found - verify_api_keys.conf created.")
+
+	global event_key
+	if os.path.exists("event_key.conf"):
+		with open("event_key.conf", "r") as event_lines:
+			lines = event_lines.readlines()
+			for line in lines:
+				# Handle comments
+				if line.strip().startswith("#"):
+					continue
+				else:
+					event_key = line.strip()
+					break
+		if event_key == "":
+			raise Exception("API key missing.")
+	else:
+		with open("event_key.conf", "w") as file:
+			file.write("# Limited access or full access API key goes here.")
+		raise Exception("No API key file was found for verifying payment for TornStonks Gold module was found - event_key.conf created.")
+				

@@ -32,7 +32,7 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 	stoch_signal = []
 	signal = 0
 	sig_price = dt["Close"][0]
-	perc_gain = 0
+	perc_gain = 1
 	n_buys = 0
 	n_sells = 0
 
@@ -57,7 +57,7 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 						sell_price.append(dt["Close"][i])
 						signal = -1
 						perc = (float((dt["Close"][i] - sig_price) / sig_price) * 100)
-						perc_gain += perc
+						perc_gain = perc_gain * (1 + perc)
 						sig_price = dt["Close"][i]
 						stoch_signal.append(signal)
 						n_sells += 1
@@ -75,7 +75,7 @@ def get_stoch(ticker, interval, render_graphs=True, k=14, t=3, limit=2000, profi
 					sell_price.append(dt["Close"][i])
 					signal = -1
 					perc = (float((dt["Close"][i] - sig_price) / sig_price) * 100)
-					perc_gain += perc
+					perc_gain = perc_gain * (1 + perc)
 					sig_price = dt["Close"][i]
 					stoch_signal.append(signal)
 					n_sells += 1

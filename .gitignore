@@ -134,7 +134,9 @@ suggestion_channels.conf
 settings.conf
 command_channels.conf
 admins.conf
-userdata.csv
+verify_api_keys.conf
+event_key.conf
+userdata*.csv
 /graphs
 
 # No syncing of prediction data

@@ -22,7 +22,7 @@ async def portfolio(self, message, prefix):
 			torn_req = tsl_lib.util.get_torn_stock_data(command[1])
 			# Make people less paranoid by deleting the key after use
 			# Python will delete the contents of this function once it returns to the main thread
-			message.content = command[0] + command[2] + command[3]
+			message.content = ""
 			command[1] = "there_was_an_api_key_here_now_there_isnt"
 			if torn_req.status_code == 200:
 				torn_json = json.loads(torn_req.text)
@@ -62,7 +62,15 @@ async def portfolio(self, message, prefix):
 											timestamp = datetime.utcfromtimestamp(int(torn_json["stocks"][stock]["transactions"][transaction]["time_bought"])).strftime('%H:%M:%S - %d/%m/%y TCT')
 											emb_value = emb_value + "**" + timestamp + ":**\n"
 											emb_value = emb_value + "Purchase Price: $" + str(torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) + ", (" + "{:,.2f}".format(price_perc) + "%)\n"
-											emb_value = emb_value + "Shares: " "{:,}".format(torn_json["stocks"][stock]["transactions"][transaction]["shares"]) + "\n\n"
+											emb_value = emb_value + "Shares: " + "{:,}".format(torn_json["stocks"][stock]["transactions"][transaction]["shares"]) + "\n"
+											orig_price = torn_json["stocks"][stock]["transactions"][transaction]["bought_price"] * torn_json["stocks"][stock]["transactions"][transaction]["shares"]
+											curr_price = float(data["price"]) * torn_json["stocks"][stock]["transactions"][transaction]["shares"]
+											if curr_price - orig_price < 0:
+												emb_value = emb_value + "Change: -$" + "{:,.2f}".format(abs(curr_price - orig_price)) + "\n\n"
+											elif curr_price - orig_price > 0:
+												emb_value = emb_value + "Change: +$" + "{:,.2f}".format(abs(curr_price - orig_price)) + "\n\n"
+											else:
+												emb_value = emb_value + "Change: $" + "{:,.2f}".format(abs(curr_price - orig_price)) + "\n\n"
 											index += 1
 						else:
 							for data in config.json_data["data"]:
@@ -72,7 +80,16 @@ async def portfolio(self, message, prefix):
 										timestamp = datetime.utcfromtimestamp(int(torn_json["stocks"][stock]["transactions"][transaction]["time_bought"])).strftime('%H:%M:%S - %d/%m/%y TCT')
 										emb_value = emb_value + "**" + timestamp + ":**\n"
 										emb_value = emb_value + "Purchase Price: $" + str(torn_json["stocks"][stock]["transactions"][transaction]["bought_price"]) + ", (" + "{:,.2f}".format(price_perc) + "%)\n"
-										emb_value = emb_value + "Shares: " "{:,}".format(torn_json["stocks"][stock]["transactions"][transaction]["shares"]) + "\n\n"
+										emb_value = emb_value + "Shares: " + "{:,}".format(torn_json["stocks"][stock]["transactions"][transaction]["shares"]) + "\n"
+										orig_price = torn_json["stocks"][stock]["transactions"][transaction]["bought_price"] * torn_json["stocks"][stock]["transactions"][transaction]["shares"]
+										curr_price = float(data["price"]) * torn_json["stocks"][stock]["transactions"][transaction]["shares"]
+										if curr_price - orig_price < 0:
+											emb_value = emb_value + "Change: -$" + "{:,.2f}".format(abs(curr_price - orig_price)) + "\n\n"
+										elif curr_price - orig_price > 0:
+											emb_value = emb_value + "Change: +$" + "{:,.2f}".format(abs(curr_price - orig_price)) + "\n\n"
+										else:
+											emb_value = emb_value + "Change: $" + "{:,.2f}".format(abs(curr_price - orig_price)) + "\n\n"
+											
 						for data in config.json_data["data"]:
 							if len(command) >= 3:
 								if tsl_lib.stock_lut[int(stock)-1] == command[2].upper() and tsl_lib.stock_lut[int(stock)-1] == data["stock"]:

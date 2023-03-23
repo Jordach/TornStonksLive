@@ -3,8 +3,23 @@ import discord
 import tsl_core.functions as tsl_lib
 import tsl_config.config as config
 
+backtest_functions = []
+backtest_functions.append("`!backtest stoch`\n")
+backtest_functions.append("`!backtest ulcer`\n")
+
+bt_string = ""
+for func in backtest_functions:
+	bt_string += func
+
 async def backtest(self, message, prefix):
 	command = message.content.split(" ")
+	if len(command) == 1:
+		embed = discord.Embed(title="Backtest List:")
+		self.set_author(message, embed)
+		embed.color = discord.Color.purple()
+		embed.add_field(name="Available Options:", value=bt_string)
+		await message.channel.send(embed=embed, mention_author=False, reference=message)
+		return
 	if command[1].lower() == "stoch":
 		if len(command) == 2:
 			embed = discord.Embed(title="Backtest Help for STOCH:")
@@ -76,6 +91,8 @@ async def backtest(self, message, prefix):
 				if len(command) == 9:
 					if command[8].lower() == "false":
 						stoch_output = tsl_lib.analysis.get_stoch(command[2].lower(), command[3].lower(), limit=command[4], k=command[5], t=command[6], profit_perc=command[7], render_graphs=False)
+					elif command[8].lower() == "true":
+						stoch_output = tsl_lib.analysis.get_stoch(command[2].lower(), command[3].lower(), limit=command[4], k=command[5], t=command[6], profit_perc=command[7], render_graphs=True)
 				else:
 					stoch_output = tsl_lib.analysis.get_stoch(command[2].lower(), command[3].lower(), limit=command[4], k=command[5], t=command[6], profit_perc=command[7], render_graphs=True)
 			except:
@@ -93,7 +110,7 @@ async def backtest(self, message, prefix):
 			setting_str += "K: " + str(command[5]) + "\n"
 			setting_str += "D: " + str(command[6]) + "\n"
 			embed.add_field(name="Settings:", value=setting_str, inline=False)
-			misc_stats = "Percentage Gained: " + "{:.2f}".format(stoch_output[4]) + "%\n"
+			misc_stats = "Compounded Interest: " + "{:.2f}".format(stoch_output[4]) + "%\n"
 			misc_stats += "Times Bought: " + "{:,}".format(stoch_output[2] + 1) + "\n"
 			misc_stats += "Times Sold: " + "{:,}".format(stoch_output[3]) + "\n"
 			embed.add_field(name="Misc Stats:", value=misc_stats, inline=False)

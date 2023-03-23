@@ -31,3 +31,8 @@ async def system_message(self, message, prefix):
 		for key in range(0, len(config.alert_channels["id"])):
 			channel = await self.fetch_channel(config.alert_channels["id"][key])
 			await channel.send(new_msg)
+
+async def sync_commands(self, message, prefix):
+	if int(message.author.id) in config.bot_admins:
+		await config.client.tree.sync()
+		print("Synced slash command tree to Discord.")

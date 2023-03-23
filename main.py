@@ -1,10 +1,13 @@
 import requests
 import json
 import schedule
+from discord import app_commands
 
 import tsl_config.config as config
 import tsl_core.functions as tsl_lib
 import tsl_bot.bot as tsl_bot
+
+enable_tsl_gold = True
 
 config.read_token()
 config.read_admins()
@@ -13,6 +16,9 @@ config.read_alerts()
 config.read_channels()
 config.read_suggestions()
 config.read_suggest_json()
+
+if enable_tsl_gold:
+	config.read_torn_api_keys()
 
 current_day = tsl_lib.util.current_date()
 
@@ -47,7 +53,7 @@ def get_latest_stocks():
 		config.json_data = json.loads(tornsy_data.text)
 		tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.intervals)
 		if config.bot_started:
-			tsl_bot.Bot.process_stockdata(client)
+			tsl_bot.Bot.process_stockdata(config.client)
 	else:
 		tsl_lib.util.write_log("[WARNING] Server returned error code: " + str(tornsy_data.status_code), current_day)
 
@@ -57,21 +63,21 @@ get_latest_stocks()
 def check_volatility():
 	if config.bot_started:
 		try:
-			tsl_bot.Bot.process_volatility(client)
+			tsl_bot.Bot.process_volatility(config.client)
 		except:
 			tsl_lib.util.write_log("[WARNING] Potential problem with volatiltity checks.", current_day)
 
 def check_daily_volatility():
 	if config.bot_started:
 		try:
-			tsl_bot.Bot.process_daily_volatility(client)
+			tsl_bot.Bot.process_daily_volatility(config.client)
 		except:
 			tsl_lib.util.write_log("[WARNING] Potential problem with volatiltity checks.", current_day)
 
 def check_weekly_volatility():
 	if config.bot_started:
 		try:
-			tsl_bot.Bot.process_weekly_volatility(client)
+			tsl_bot.Bot.process_weekly_volatility(config.client)
 		except:
 			tsl_lib.util.write_log("[WARNING] Potential problem with volatiltity checks.", current_day)
 
@@ -79,7 +85,7 @@ def check_weekly_volatility():
 def suggests():
 	if config.bot_started:
 		try:
-			tsl_bot.Bot.process_suggestions(client)
+			tsl_bot.Bot.process_suggestions(config.client)
 		except:
 			tsl_lib.util.write_log("[WARNING] Potential problem with suggestion predictions.", current_day)
 
@@ -102,6 +108,7 @@ if enable_volatility:
 
 schedule.every().minute.at(":15").do(get_latest_stocks)
 
-client = tsl_bot.Bot(intents=config.intents)
-client.run(config.bot_token)
-# Code written below this comment will never be executed
+config.client = tsl_bot.Bot(intents=config.intents)
+import tsl_gold.commands
+config.client.run(config.bot_token)
+# Code written below this comment will never be executed due to async threading
