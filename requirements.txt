@@ -1,0 +1,7 @@
+scikit-learn
+matplotlib
+numpy
+pandas
+discord.py
+schedule
+ta

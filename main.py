@@ -52,8 +52,8 @@ def get_latest_stocks():
 	if tornsy_data.status_code == 200:
 		config.json_data = json.loads(tornsy_data.text)
 		tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.intervals)
-		if config.bot_started:
-			tsl_bot.Bot.process_stockdata(config.client)
+		#if config.bot_started:
+			#tsl_bot.Bot.process_stockdata(config.client)
 	else:
 		tsl_lib.util.write_log("[WARNING] Server returned error code: " + str(tornsy_data.status_code), current_day)
 
@@ -109,6 +109,7 @@ if enable_volatility:
 schedule.every().minute.at(":15").do(get_latest_stocks)
 
 config.client = tsl_bot.Bot(intents=config.intents)
+# Linter and analysis tools get upset, but there are decorated functions in this import
 import tsl_gold.commands
 config.client.run(config.bot_token)
 # Code written below this comment will never be executed due to async threading

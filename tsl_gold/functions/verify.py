@@ -6,13 +6,6 @@ import json
 import tsl_config.config as config
 client = config.client
 
-@client.tree.command(name="hellov2", description="hello v2")
-async def hello(interaction: discord.Interaction):
-	dm_state = True
-	if interaction.channel.type == discord.ChannelType.private:
-		dm_state = False
-	await interaction.response.send_message(f'Hi, {interaction.user.mention}', ephemeral=dm_state)
-
 @client.tree.command(name="verify", description="Verify your Torn ID for TornStonks Gold usage.")
 async def verify(interaction: discord.Interaction):
 	dm_state = True

@@ -209,3 +209,11 @@ def update_from_tornsy(json_data, intervals):
 
 		con.commit()
 		con.close()
+
+## Gold DB things
+
+def gold_user_add(user_id):
+	print(user_id)
+	pwd = os.getcwd()
+
+	
