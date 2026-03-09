@@ -56,8 +56,8 @@ def get_latest_stocks():
 	if tornsy_data.status_code == 200:
 		config.json_data = json.loads(tornsy_data.text)
 		tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.intervals)
-		#if config.bot_started:
-			#tsl_bot.Bot.process_stockdata(config.client)
+		if config.bot_started:
+			tsl_bot.Bot.process_stockdata(config.client)
 	else:
 		tsl_lib.util.write_log("[WARNING] Server returned error code: " + str(tornsy_data.status_code), current_day)
 

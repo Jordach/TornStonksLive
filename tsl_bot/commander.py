@@ -44,7 +44,7 @@ commands.append(("paper_sell", cmd_paper.sell, True, True))
 commands.append(("portfolio", cmd_portfolio.portfolio, True, True))
 commands.append(("predict", cmd_predict.predict, True, True))
 commands.append(("search", cmd_candle_search.search, True, True))
-commands.append(("stock", cmd_stock.stock_cmd, True, True))
+# commands.append(("stock", cmd_stock.stock_cmd, True, True))
 commands.append(("up", cmd_price_alerts.alerts, True, True))
 
 undo_int = 0

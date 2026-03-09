@@ -8,7 +8,7 @@ async def alert_user(self, item, id, type, stock, value, data):
 	if "up" in type:
 		embed = discord.Embed(title=data["name"] + " Above Target Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+tsl_lib.util.lut_stock_id(stock)+"&tab=owned")
 		embed.color = discord.Color.orange()
-		embed.add_field(name="Stonks!", value=data["name"] + " has reached or exceeded your target price of: $" + "{:,}".format(value) + ".")
+		embed.add_field(name="Stonks!", value=data["name"] + " has reached or exceeded your target price of: $" + "{:,.2f}".format(value) + ".")
 		embed.set_thumbnail(url=config.stonks_png)
 		user = await self.fetch_user(id)
 		self.set_author_notif(user, embed)
@@ -16,7 +16,7 @@ async def alert_user(self, item, id, type, stock, value, data):
 	elif "down" in type:
 		embed = discord.Embed(title=data["name"] + " Below Target Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+tsl_lib.util.lut_stock_id(stock)+"&tab=owned")
 		embed.color = discord.Color.orange()
-		embed.add_field(name="Stonks!", value=data["name"] + " has reached or fallen under your target price of: $" + "{:,}".format(value) + ".")
+		embed.add_field(name="Stonks!", value=data["name"] + " has reached or fallen under your target price of: $" + "{:,.2f}".format(value) + ".")
 		embed.set_thumbnail(url=config.stonks_png)
 		user = await self.fetch_user(id)
 		self.set_author_notif(user, embed)
@@ -24,7 +24,7 @@ async def alert_user(self, item, id, type, stock, value, data):
 	elif type == "loss":
 		embed = discord.Embed(title=data["name"] + " Below Stop Loss Price", url="https://www.torn.com/page.php?sid=stocks&stockID="+tsl_lib.util.lut_stock_id(stock)+"&tab=owned")
 		embed.color = discord.Color.red()
-		embed.add_field(name="Not Stonks!", value=data["name"] + " has reached or fallen below your stop loss price of: $" + "{:,}".format(value) + ".")
+		embed.add_field(name="Not Stonks!", value=data["name"] + " has reached or fallen below your stop loss price of: $" + "{:,.2f}".format(value) + ".")
 		embed.set_thumbnail(url=config.notstonks_png)
 		user = await self.fetch_user(id)
 		self.set_author_notif(user, embed)
