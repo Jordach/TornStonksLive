@@ -5,3 +5,5 @@ pandas
 discord.py
 schedule
 ta
+cryptography
+requests

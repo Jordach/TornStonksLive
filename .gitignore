@@ -147,3 +147,14 @@ best_gain.json
 best_loss.json
 best_rand.json
 /db
+
+# SQLite database
+tsl_data.db
+tsl_data.db-wal
+tsl_data.db-shm
+
+# Encryption key – NEVER commit this
+encryption.key
+
+# Migrated JSON config
+admins.json

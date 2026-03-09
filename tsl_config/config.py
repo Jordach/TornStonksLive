@@ -38,6 +38,77 @@ enable_suggestions = False
 
 intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True, message_content=True)
 
+# SQLite implementation
+import sqlite3
+
+DB_PATH = "tsl_data.db"
+
+def _get_db_connection():
+	"""Return a connection to the shared SQLite database."""
+	conn = sqlite3.connect(DB_PATH)
+	conn.execute("PRAGMA journal_mode=WAL")
+	return conn
+
+def _init_db():
+	"""Create tables if they don't already exist."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	cur.execute("""
+		CREATE TABLE IF NOT EXISTS user_alerts (
+			id       INTEGER NOT NULL,
+			type     TEXT    NOT NULL,
+			stock    TEXT    NOT NULL,
+			value    REAL    NOT NULL
+		)
+	""")
+	cur.execute("""
+		CREATE TABLE IF NOT EXISTS api_keys (
+			discord_id  TEXT NOT NULL,
+			encrypted_key TEXT NOT NULL,
+			PRIMARY KEY (discord_id, encrypted_key)
+		)
+	""")
+	cur.execute("""
+		CREATE TABLE IF NOT EXISTS event_keys (
+			key_name       TEXT NOT NULL PRIMARY KEY,
+			encrypted_key  TEXT NOT NULL
+		)
+	""")
+	conn.commit()
+	conn.close()
+
+# Ensure tables exist on import
+_init_db()
+
+# Encryption helpers – Fernet with a persistent key file
+ENCRYPTION_KEY_PATH = "encryption.key"
+from cryptography.fernet import Fernet
+
+def _load_or_create_fernet():
+	"""Load (or generate) a Fernet key and return a Fernet instance."""
+	if os.path.exists(ENCRYPTION_KEY_PATH):
+		with open(ENCRYPTION_KEY_PATH, "rb") as f:
+			key = f.read().strip()
+	else:
+		key = Fernet.generate_key()
+		with open(ENCRYPTION_KEY_PATH, "wb") as f:
+			f.write(key)
+		tsl_lib.util.write_log(
+			"[INFO] Generated new encryption key at " + ENCRYPTION_KEY_PATH,
+			tsl_lib.util.current_date(),
+		)
+	return Fernet(key)
+
+_fernet = _load_or_create_fernet()
+
+def _encrypt(plaintext: str) -> str:
+	"""Encrypt a string and return a base-64 token string."""
+	return _fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+def _decrypt(token: str) -> str:
+	"""Decrypt a Fernet token string back to plaintext."""
+	return _fernet.decrypt(token.encode("utf-8")).decode("utf-8")
+
 def read_token():
 	global bot_token
 	with open("settings.conf", "r") as system_config:
@@ -127,131 +198,229 @@ def read_alerts():
 			file.write("")
 		raise Exception("No channels to send automated notifications to - alert_channels.conf created.")
 
-# REFACTOR NOTICE:
-# Should be moved to json notation
-# Read admins out
+# Read admins.json
 def read_admins():
 	global bot_admins
-	with open("admins.conf", "r") as admin_config:
-		lines = admin_config.readlines()
-		for line in lines:
-			# Handle comments
-			if line.strip().startswith("#"):
-				continue
+	json_path = "admins.json"
 
-			bot_admins.append(int(line.strip()))
+	# --- Try the new JSON format first ---
+	if os.path.exists(json_path):
+		with open(json_path, "r") as f:
+			data = json.load(f)
+		bot_admins = [int(uid) for uid in data.get("admins", [])]
+		if len(bot_admins) == 0:
+			raise Exception("admins.json exists but contains no admin IDs.")
+		tsl_lib.util.write_log("[INFO] Loaded " + str(len(bot_admins)) + " admin(s) from admins.json", tsl_lib.util.current_date())
+		return
 
-	if len(bot_admins) == 0:
-		with open("admins.conf", "w") as file:
-			file.write("")
-		raise Exception("No admin config file to control admin features - admins.conf created.")
+	# --- Fall back to legacy admins.conf and migrate ---
+	legacy_path = "admins.conf"
+	if os.path.exists(legacy_path):
+		with open(legacy_path, "r") as admin_config:
+			lines = admin_config.readlines()
+			for line in lines:
+				if line.strip().startswith("#") or line.strip() == "":
+					continue
+				bot_admins.append(int(line.strip()))
 
-# REFACTOR NOTICE:
-# Should be moved to sqlite or json serialisation
+		if len(bot_admins) == 0:
+			raise Exception("No admin IDs found in admins.conf – cannot migrate.")
+
+		# Write the new JSON file
+		with open(json_path, "w") as f:
+			json.dump({"admins": bot_admins}, f, indent=2)
+		tsl_lib.util.write_log(
+			"[MIGRATION] Migrated " + str(len(bot_admins)) + " admin(s) from admins.conf -> admins.json",
+			tsl_lib.util.current_date(),
+		)
+		return
+
+	# --- Neither file exists ---
+	with open(json_path, "w") as f:
+		json.dump({"admins": []}, f, indent=2)
+	raise Exception("No admin config found – admins.json created. Add admin Discord IDs to it.")
+
 # User alerts
 def read_user_alerts():
 	global userdata
-	with open("userdata.csv", "r") as file:
+	conn = _get_db_connection()
+	cur = conn.cursor()
+
+	# Check whether the SQLite table already has data
+	cur.execute("SELECT COUNT(*) FROM user_alerts")
+	count = cur.fetchone()[0]
+
+	if count > 0:
+		# Load from SQLite
+		cur.execute("SELECT id, type, stock, value FROM user_alerts")
+		for row in cur.fetchall():
+			userdata["id"].append(int(row[0]))
+			userdata["type"].append(str(row[1]))
+			userdata["stock"].append(str(row[2]))
+			userdata["value"].append(float(row[3]))
+		conn.close()
+		tsl_lib.util.write_log(
+			"[INFO] Loaded " + str(count) + " user alert(s) from SQLite.",
+			tsl_lib.util.current_date(),
+		)
+		return
+
+	conn.close()
+
+	# --- Fall back to legacy userdata.csv and migrate ---
+	legacy_path = "userdata.csv"
+	if not os.path.exists(legacy_path):
+		tsl_lib.util.write_log("[INFO] No existing user alerts to load.", tsl_lib.util.current_date())
+		return
+
+	with open(legacy_path, "r") as file:
 		lines = file.readlines()
 		ln = 1
-		global userdata
 		for line in lines:
 			if ln == 1:
-				# Ignore malformed files entirely (even though they'd probably work otherwise)
 				if line.strip() != "id,type,stock,value":
 					tsl_lib.util.write_log("[WARNING] userdata.csv is in an incorrect format, skipping loading.", tsl_lib.util.current_date())
 					return
-				ln+=1
+				ln += 1
 			else:
-				data = line.strip().split(",",3)
+				data = line.strip().split(",", 3)
 				if len(data) == 4:
 					userdata["id"].append(int(data[0]))
-					userdata["type"].append((str(data[1])))
+					userdata["type"].append(str(data[1]))
 					userdata["stock"].append(str(data[2]))
 					userdata["value"].append(float(data[3]))
 				else:
-					tsl_lib.util.write_log("[WARNING] userdata has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
+					tsl_lib.util.write_log("[WARNING] userdata.csv has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
+				ln += 1
 
-# REFACTOR NOTICE:
-# Should be moved to sqlite or json serialisation
+	# Persist the migrated data into SQLite
+	if len(userdata["id"]) > 0:
+		write_user_alerts()
+		tsl_lib.util.write_log(
+			"[MIGRATION] Migrated " + str(len(userdata["id"])) + " user alert(s) from userdata.csv -> SQLite.",
+			tsl_lib.util.current_date(),
+		)
+
 def write_user_alerts():
 	global userdata
-	id = len(userdata["id"])
-	ty = len(userdata["type"])
-	st = len(userdata["stock"])
-	vl = len(userdata["value"])
-	
-	if id == ty and id == st and id == vl:
-		with open("userdata.csv", "w") as file:
-			out = "id,type,stock,value\n"
-			for item in range(0, len(userdata["id"])):
-				out = out + str(userdata["id"][item]) + ","
-				out = out + str(userdata["type"][item]) + ","
-				out = out + str(userdata["stock"][item]) + "," 
-				out = out + str(userdata["value"][item])
-				if item != len(userdata["id"]) - 1:
-					out = out + "\n"
-			file.write(out)
-	else:
+	id_len = len(userdata["id"])
+	ty_len = len(userdata["type"])
+	st_len = len(userdata["stock"])
+	vl_len = len(userdata["value"])
+
+	if id_len != ty_len or id_len != st_len or id_len != vl_len:
 		tsl_lib.util.write_log("[FATAL] userdata memory corrupted or invalid, restart bot immediately.", tsl_lib.util.current_date())
+		return
 
-def read_suggest_json():
-	global best_gain
-	global best_loss
-	global best_rand
-	if os.path.exists("best_gain.json"):
-		with open("best_gain.json") as file:
-			best_gain = json.load(file)
-	else:
-		tsl_lib.util.write_log("[WARNING] best_gain.json not found - ignoring", tsl_lib.util.current_date())
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	# Replace the entire table contents atomically
+	cur.execute("DELETE FROM user_alerts")
+	for i in range(id_len):
+		cur.execute(
+			"INSERT INTO user_alerts (id, type, stock, value) VALUES (?, ?, ?, ?)",
+			(userdata["id"][i], userdata["type"][i], userdata["stock"][i], userdata["value"][i]),
+		)
+	conn.commit()
+	conn.close()
 
-	if os.path.exists("best_loss.json"):
-		with open("best_loss.json") as file:
-			best_loss = json.load(file)
-	else:
-		tsl_lib.util.write_log("[WARNING] best_loss.json not found - ignoring", tsl_lib.util.current_date())
-
-	if os.path.exists("best_rand.json"):
-		with open("best_rand.json") as file:
-			best_rand = json.load(file)
-	else:
-		tsl_lib.util.write_log("[WARNING] best_rand.json not found - ignoring", tsl_lib.util.current_date())
-
-# REFACTOR NOTICE:
-# Torn API keys must be stored encrypted, probably using the Discord user's ID as a salt
-# Also consider using a database like sqlite for easier storage as key pairs (discord_id, encrypted_API_key)
+# Migrates from verify_api_keys.conf and event_key.conf on first run.
+# Schema supports (discord_id, encrypted_key) pairs for future per-user storage.
+# Legacy keys are stored under discord_id = "_legacy_" until associated with a user.
 def read_torn_api_keys():
 	global verification_keys
-	with open("verify_api_keys.conf", "r") as verify_keys:
-		lines = verify_keys.readlines()
-		for line in lines:
-			# Handle comments
-			if line.strip().startswith("#"):
-				continue
-		
-			data = line.strip()
-			verification_keys.append(data)
+	global event_key
+	conn = _get_db_connection()
+	cur = conn.cursor()
 
-	if len(verification_keys) == 0:
-		with open("verify_api_keys.conf", "r") as file:
-			file.write("#Torn API keys go in here.")
+	# --- Try loading from SQLite first ---
+	cur.execute("SELECT encrypted_key FROM api_keys")
+	rows = cur.fetchall()
+
+	cur.execute("SELECT encrypted_key FROM event_keys WHERE key_name = ?", ("event_key",))
+	ev_row = cur.fetchone()
+
+	if len(rows) > 0 or ev_row is not None:
+		# Decrypt verification keys
+		for row in rows:
+			try:
+				verification_keys.append(_decrypt(row[0]))
+			except Exception:
+				tsl_lib.util.write_log("[WARNING] Failed to decrypt an API key – skipping.", tsl_lib.util.current_date())
+
+		# Decrypt event key
+		if ev_row is not None:
+			try:
+				event_key = _decrypt(ev_row[0])
+			except Exception:
+				tsl_lib.util.write_log("[WARNING] Failed to decrypt event key.", tsl_lib.util.current_date())
+
+		conn.close()
+
+		if len(verification_keys) == 0:
+			raise Exception("API keys table exists in SQLite but all keys failed to decrypt.")
+		if event_key == "":
+			raise Exception("Event key failed to decrypt or is missing from SQLite.")
+
+		tsl_lib.util.write_log(
+			"[INFO] Loaded " + str(len(verification_keys)) + " API key(s) + event key from SQLite (encrypted).",
+			tsl_lib.util.current_date(),
+		)
+		return
+
+	conn.close()
+
+	# --- Fall back to legacy .conf files and migrate ---
+	# Verification keys
+	legacy_keys_path = "verify_api_keys.conf"
+	if os.path.exists(legacy_keys_path):
+		with open(legacy_keys_path, "r") as verify_file:
+			lines = verify_file.readlines()
+			for line in lines:
+				if line.strip().startswith("#") or line.strip() == "":
+					continue
+				verification_keys.append(line.strip())
+	else:
+		with open(legacy_keys_path, "w") as file:
+			file.write("# Torn API keys go in here.")
 		raise Exception("No API keys file for verifying users for TornStonks Gold module was found - verify_api_keys.conf created.")
 
-	global event_key
-	if os.path.exists("event_key.conf"):
-		with open("event_key.conf", "r") as event_lines:
+	if len(verification_keys) == 0:
+		raise Exception("verify_api_keys.conf contains no API keys.")
+
+	# Event key
+	legacy_event_path = "event_key.conf"
+	if os.path.exists(legacy_event_path):
+		with open(legacy_event_path, "r") as event_lines:
 			lines = event_lines.readlines()
 			for line in lines:
-				# Handle comments
-				if line.strip().startswith("#"):
+				if line.strip().startswith("#") or line.strip() == "":
 					continue
 				else:
 					event_key = line.strip()
 					break
 		if event_key == "":
-			raise Exception("API key missing.")
+			raise Exception("API key missing in event_key.conf.")
 	else:
-		with open("event_key.conf", "w") as file:
+		with open(legacy_event_path, "w") as file:
 			file.write("# Limited access or full access API key goes here.")
 		raise Exception("No API key file was found for verifying payment for TornStonks Gold module was found - event_key.conf created.")
-				
+
+	# --- Migrate everything into SQLite (encrypted) ---
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	for key in verification_keys:
+		cur.execute(
+			"INSERT OR IGNORE INTO api_keys (discord_id, encrypted_key) VALUES (?, ?)",
+			("_legacy_", _encrypt(key)),
+		)
+	cur.execute(
+		"INSERT OR REPLACE INTO event_keys (key_name, encrypted_key) VALUES (?, ?)",
+		("event_key", _encrypt(event_key)),
+	)
+	conn.commit()
+	conn.close()
+	tsl_lib.util.write_log(
+		"[MIGRATION] Migrated " + str(len(verification_keys)) + " API key(s) + event key from .conf -> SQLite (encrypted).",
+		tsl_lib.util.current_date(),
+	)

@@ -1,5 +1,8 @@
 import requests
 import json
+import importlib
+import pkgutil
+import cryptography
 import schedule
 from discord import app_commands
 
@@ -15,7 +18,6 @@ config.read_user_alerts()
 config.read_alerts()
 config.read_channels()
 config.read_suggestions()
-config.read_suggest_json()
 
 if enable_tsl_gold:
 	config.read_torn_api_keys()
@@ -30,7 +32,9 @@ def backfill_db():
 		tsl_lib.db.import_from_tornsy(ticker, tsl_lib.intervals, limit=n_times)
 		tsl_lib.util.write_log("[INFO]: " + ticker + " added to DB.", current_day)
 
-backfill_db()
+perform_backfill = False
+if perform_backfill:
+	backfill_db()
 
 tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
 tornsy_data =""
@@ -81,7 +85,6 @@ def check_weekly_volatility():
 		except:
 			tsl_lib.util.write_log("[WARNING] Potential problem with volatiltity checks.", current_day)
 
-
 def suggests():
 	if config.bot_started:
 		try:
@@ -110,7 +113,7 @@ schedule.every().minute.at(":15").do(get_latest_stocks)
 
 config.client = tsl_bot.Bot(intents=config.intents)
 # Auto-import all slash command modules so their decorators register
-slash_packages = ["tsl_gold.commands", "tsl_bot.slash_commands"]  # add packages as needed
+slash_packages = ["tsl_gold.commands"]  # add packages as needed
 for package_name in slash_packages:
     package = importlib.import_module(package_name)
     for importer, modname, ispkg in pkgutil.walk_packages(
