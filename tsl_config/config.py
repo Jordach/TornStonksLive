@@ -203,6 +203,9 @@ def read_suggest_json():
 	else:
 		tsl_lib.util.write_log("[WARNING] best_rand.json not found - ignoring", tsl_lib.util.current_date())
 
+# REFACTOR NOTICE:
+# Torn API keys must be stored encrypted, probably using the Discord user's ID as a salt
+# Also consider using a database like sqlite for easier storage as key pairs (discord_id, encrypted_API_key)
 def read_torn_api_keys():
 	global verification_keys
 	with open("verify_api_keys.conf", "r") as verify_keys:
