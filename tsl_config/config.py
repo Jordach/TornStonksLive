@@ -9,6 +9,8 @@ stonks_png = "https://cdn.discordapp.com/attachments/315121916199305218/97630680
 bot_token = ""
 bot_started = False
 
+api_key_reason = "TornStonks Mark II"
+
 userdata = {"id":[], "type":[], "stock":[], "value":[]}
 auto_userdata = {"id":[], "type":[], "stock":[], "timescale":[], "mute":[], "param1":[], "param2":[], "param3":[], "param4":[], "param5":[], "memory":[], "delay":[]}
 # Note that params 1-5 are for read/write; memory, delay is during bot operation only.
@@ -51,6 +53,8 @@ def read_token():
 			file.write("")
 			raise Exception("Bot token is missing")
 
+# DEPRECATED NOTICE:
+# Will be replaced by slash commands soon
 def read_channels():
 	global command_channels
 	with open("command_channels.conf", "r") as channel_config:
@@ -73,6 +77,8 @@ def read_channels():
 			file.write("")
 		raise Exception("No channels to send/receive commands to - command_channels.conf created.")
 
+# DEPRECATED NOTICE:
+# Will be converted to a singular Discord server and channel only for easier customised installation
 # Automated suggestions:
 def read_suggestions():
 	global suggestion_channels
@@ -94,6 +100,8 @@ def read_suggestions():
 			file.write("")
 		raise Exception("No channels to send automated analysis to - suggestion_channels.conf created.")
 
+# DEPRECATED NOTICE:
+# Will be converted to a singular Discord server and channel only for easier customised installation
 # Alerts and notifications
 def read_alerts():
 	global alert_channels
@@ -119,6 +127,8 @@ def read_alerts():
 			file.write("")
 		raise Exception("No channels to send automated notifications to - alert_channels.conf created.")
 
+# REFACTOR NOTICE:
+# Should be moved to json notation
 # Read admins out
 def read_admins():
 	global bot_admins
@@ -136,6 +146,8 @@ def read_admins():
 			file.write("")
 		raise Exception("No admin config file to control admin features - admins.conf created.")
 
+# REFACTOR NOTICE:
+# Should be moved to sqlite or json serialisation
 # User alerts
 def read_user_alerts():
 	global userdata
@@ -160,6 +172,8 @@ def read_user_alerts():
 				else:
 					tsl_lib.util.write_log("[WARNING] userdata has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
 
+# REFACTOR NOTICE:
+# Should be moved to sqlite or json serialisation
 def write_user_alerts():
 	global userdata
 	id = len(userdata["id"])
