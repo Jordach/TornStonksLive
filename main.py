@@ -24,7 +24,7 @@ current_day = tsl_lib.util.current_date()
 
 # Back fill the DBs with data
 def backfill_db():
-	n_times = -1
+	n_times = 20
 	for ticker in tsl_lib.stock_lut:
 		tsl_lib.util.write_log("[INFO]: Downloading " + ticker + ".", current_day)
 		tsl_lib.db.import_from_tornsy(ticker, tsl_lib.intervals, limit=n_times)
@@ -109,7 +109,13 @@ if enable_volatility:
 schedule.every().minute.at(":15").do(get_latest_stocks)
 
 config.client = tsl_bot.Bot(intents=config.intents)
-# Linter and analysis tools get upset, but there are decorated functions in this import
-import tsl_gold.commands
+# Auto-import all slash command modules so their decorators register
+slash_packages = ["tsl_gold.commands", "tsl_bot.slash_commands"]  # add packages as needed
+for package_name in slash_packages:
+    package = importlib.import_module(package_name)
+    for importer, modname, ispkg in pkgutil.walk_packages(
+        package.__path__, prefix=package.__name__ + "."
+    ):
+        importlib.import_module(modname)
 config.client.run(config.bot_token)
 # Code written below this comment will never be executed due to async threading

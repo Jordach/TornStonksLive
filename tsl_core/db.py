@@ -2,6 +2,7 @@ from math import floor
 import json
 import requests
 import sqlite3
+import math
 from datetime import datetime
 import time
 import os
@@ -212,8 +213,71 @@ def update_from_tornsy(json_data, intervals):
 
 ## Gold DB things
 
-def gold_user_add(user_id):
-	print(user_id)
+def check_n_create_gold_db():
 	pwd = os.getcwd()
+	con = sqlite3.connect(pwd + "/db/db_gold.db")
+	cur = con.cursor()
 
-	
+	try:
+		cur.execute(f"CREATE TABLE users (tornid integer PRIMARY KEY UNIQUE, discordid integer, daysleft integer)")
+		con.commit()
+	except:
+		pass
+	con.close()
+
+def gold_user_add_user(user_id, torn_id, torn_key=""):
+	base_days = 30
+	if torn_key != "":
+		base_days += 15
+
+	pwd = os.getcwd()
+	con = sqlite3.connect(pwd + "/db/db_gold.db")
+	cur = con.cursor()
+
+	add_query = f"INSERT OR IGNORE INTO users (tornid, discordid, daysleft) VALUES ({torn_id}, {user_id}, {base_days})"
+
+def gold_user_get_balance(user_id):
+	pwd = os.getcwd()
+	con = sqlite3.connect(pwd + "/db/db_gold.db")
+	cur = con.cursor()
+
+	query = f"SELECT daysleft FROM users WHERE discordid={user_id} LIMIT 1"
+	cur.execute(query)
+	res = cur.fetchone()
+	con.close()
+	print(res[1])
+	days_left = res[1]
+	return days_left
+
+def gold_get_all_users():
+	pwd = os.getcwd()
+	con = sqlite3.connect(pwd + "/db/db_gold.db")
+	cur = con.cursor()
+
+	query = "SELECT discordid FROM users"
+	users = []
+	for row in cur.execute(query):
+		users.append(row)
+	con.close()
+
+def gold_user_change_days(user_id, n_days):
+	balance = gold_user_get_balance(user_id)
+
+	pwd = os.getcwd()
+	con = sqlite3.connect(pwd + "/db/db_gold.db")
+	cur = con.cursor()
+
+	query = f"UPDATE users SET days_left={n_days} WHERE discordid={user_id}"
+	cur.execute(query)
+	con.commit()
+	con.close()
+
+def gold_user_force_set_days(user_id, n_days):
+	pwd = os.getcwd()
+	con = sqlite3.connect(pwd + "/db/db_gold.db")
+	cur = con.cursor()
+
+	query = f"UPDATE users SET days_left={n_days} WHERE discordid={user_id}"
+	cur.execute(query)
+	con.commit()
+	con.close()

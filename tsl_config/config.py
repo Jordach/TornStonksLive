@@ -28,6 +28,10 @@ rand_not_more = False
 last_pred_id = []
 json_data = ""
 
+gold_daily = ""
+gold_weekly = ""
+gold_monthly = ""
+
 enable_suggestions = False
 
 intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True, message_content=True)

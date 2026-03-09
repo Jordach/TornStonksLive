@@ -131,3 +131,23 @@ class analysis:
 	get_stoch = _get_stoch
 	get_ulcer = _get_ulcer
 	search = _pattern_scan
+
+torn_api_error_codes = []
+torn_api_error_codes.append(("Something went really, really wrong on Torn's end.", False))
+torn_api_error_codes.append(("Somehow, the API key wasn't sent in this request.", False))
+torn_api_error_codes.append(("Somehow, the API key is in the wrong format.", False))
+torn_api_error_codes.append(("An incorrect basic type for a field was submitted.", False))
+torn_api_error_codes.append(("An incorrect basic field for a selection was submitted.", False))
+torn_api_error_codes.append(("Too many API requests for this key, try again in a minute.", False))
+torn_api_error_codes.append(("Wrong ID for chosen field.", False))
+torn_api_error_codes.append(("A requested selection is private, but how did we even manage to get here?.", False))
+torn_api_error_codes.append(("IP is currently blocked. :(", False))
+torn_api_error_codes.append(("Torn's API system is down. :(", False))
+torn_api_error_codes.append(("The key owner is in Federal Jail.", True))
+torn_api_error_codes.append(("Why are you changing keys every 60 seconds?", True))
+torn_api_error_codes.append(("API cannot appear to read the key from the database, wait a few seconds and try again.", False))
+torn_api_error_codes.append(("Key disabled since the key owner has been inactive for over a week.", True))
+torn_api_error_codes.append(("Somehow this key's been used enough to reach the daily API calling limit.", False))
+torn_api_error_codes.append(("This error is a temporary measure and is usually indicative of API testing.", False))
+torn_api_error_codes.append(("This key doesn't have a high enough access level.", False))
+torn_api_error_codes.append(("Torn's backend was blown out again, it wasn't me, promise! :(", False))
