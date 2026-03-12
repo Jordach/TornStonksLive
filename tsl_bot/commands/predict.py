@@ -1,4 +1,5 @@
 import discord
+from io import BytesIO
 
 import tsl_core.functions as tsl_lib
 import tsl_config.config as config
@@ -122,5 +123,6 @@ async def predict(self, message, prefix):
 	embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely the predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\nSmaller timeframes are more prone to incorrect outcomes.\n\n**Graphs are for visual aid, not sound advice.**", inline=False)
 
 	await message.channel.send(embed=embed, mention_author=False, reference=message)
-	await message.channel.send(file=discord.File(graph_return[0]))
+	if isinstance(graph_return[0], BytesIO):
+		await message.channel.send(file=discord.File(graph_return[0]), filename="prediction.png")
 	return

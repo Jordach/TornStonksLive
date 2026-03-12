@@ -32,20 +32,20 @@ commands.append(("chedded", cmd_bonus.chedded, True, False, False))
 commands.append(("notifications", cmd_price_alerts.notifications, True, False))
 
 # Shown Public commands
-commands.append(("alerts", cmd_price_alerts.notifications, True, True))
+# commands.append(("alerts", cmd_price_alerts.notifications, True, True))
 commands.append(("backtest", cmd_backtest.backtest, True, True))
 commands.append(("credits", cmd_credits.credits, True, True))
-commands.append(("down", cmd_price_alerts.alerts, True, True))
-commands.append(("forget", cmd_forget.forget, True, True))
-commands.append(("loss", cmd_price_alerts.alerts, True, True))
+# commands.append(("down", cmd_price_alerts.alerts, True, True))
+# commands.append(("forget", cmd_forget.forget, True, True))
+# commands.append(("loss", cmd_price_alerts.alerts, True, True))
 commands.append(("overview", cmd_overview.overview, True, True))
 commands.append(("paper_buy", cmd_paper.buy, True, True))
 commands.append(("paper_sell", cmd_paper.sell, True, True))
 commands.append(("portfolio", cmd_portfolio.portfolio, True, True))
-commands.append(("predict", cmd_predict.predict, True, True))
+# commands.append(("predict", cmd_predict.predict, True, True))
 commands.append(("search", cmd_candle_search.search, True, True))
 # commands.append(("stock", cmd_stock.stock_cmd, True, True))
-commands.append(("up", cmd_price_alerts.alerts, True, True))
+# commands.append(("up", cmd_price_alerts.alerts, True, True))
 
 undo_int = 0
 for item in cmd_price_alerts.undo_list:

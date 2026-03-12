@@ -7,6 +7,7 @@ from scipy.signal import savgol_filter
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBRegressor
 from tsl_core.db import get_stock_from_db
+from io import BytesIO
 
 # Helpers
 def remap(val, val_min, val_max, map_min, map_max):
@@ -330,9 +331,6 @@ def predict_stock(ticker, interval, forecast, render_graphs, json_data, samples=
 		ts = current_time + int(((base * (period * forecast)) / 9) * i)
 		period_ticks.append(datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S %d/%m/%y'))
 
-	# ── Graph ──
-	file = os.getcwd() + "/graphs/predict " + ticker + " " + interval + " " + str(forecast) + " " + str(period_ticks[0].replace("/", "-").replace(":", "-") + ".png")
-
 	# Number of trailing real candles to show before the prediction,
 	# tuned per interval to give useful context without overwhelming.
 	trailing_candles = {
@@ -340,7 +338,8 @@ def predict_stock(ticker, interval, forecast, render_graphs, json_data, samples=
 		"h1": 12, "h2": 12, "h4": 12, "h6": 16,
 		"h12": 8, "d1": 7, "w1": 4
 	}
-
+	
+	file = ""
 	if render_graphs:
 		n_trailing = trailing_candles.get(interval, 12)
 		n_trailing *= 4
@@ -439,7 +438,9 @@ def predict_stock(ticker, interval, forecast, render_graphs, json_data, samples=
 		if not os.path.isdir(os.getcwd() + "/graphs"):
 			os.mkdir(os.getcwd() + "/graphs")
 
+		file = BytesIO()
 		plt.savefig(file, dpi=120)
 		plt.close()
+		file.seek(0)
 
 	return [file, hlvc, name, period_ticks]
