@@ -7,3 +7,4 @@ schedule
 ta
 cryptography
 requests
+xgboost

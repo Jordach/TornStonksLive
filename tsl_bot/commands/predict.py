@@ -72,7 +72,6 @@ async def predict(self, message, prefix):
 			command[4] = 2000
 
 	await message.add_reaction("✅")
-	# TODO: Allow the command to turn graphs on and off
 	graph_return = ""
 	try:
 		if len(command) == 5:
@@ -87,50 +86,41 @@ async def predict(self, message, prefix):
 		self.set_author(message, err_embed)
 		err_embed.add_field(name="Details:", value="Something went wrong with generating prediction data.\nCommand used:\n\n```" + message.content + "```")
 		err_embed.color = discord.Color.red()
-		await message.channel.send(embed=embed, mention_author=False, reference=message)
+		await message.channel.send(embed=err_embed, mention_author=False, reference=message)
 		await message.add_reaction("❌")
 		return
+
 	hlvc = graph_return[1]
 	ticks = graph_return[3]
 
-	embed = discord.Embed(title="Predictions For " + graph_return[2], url="https://www.torn.com/page.php?sid=stocks&stockID="+tsl_lib.util.lut_stock_id(test_lut)+"&tab=owned")
+	embed = discord.Embed(title="Predictions For " + graph_return[2], url="https://www.torn.com/page.php?sid=stocks&stockID=" + tsl_lib.util.lut_stock_id(test_lut) + "&tab=owned")
 	embed.color = discord.Color.blue()
-	embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+command[1].upper()+".png")
+	embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/" + command[1].upper() + ".png")
 	self.set_author(message, embed)
 
-	high_str = "SVM: **$" + "{:.2f}".format(hlvc["svm"]["high"]) + "**\n"
-	high_str = high_str + "SVML: **$" + "{:.2f}".format(hlvc["svml"]["high"]) + "**\n"
-	high_str = high_str + "LR: **$" + "{:.2f}".format(hlvc["lr"]["high"]) + "**\n"
-	high_str = high_str + "Avg: **$" + "{:.2f}".format(hlvc["avg"]["high"]) + "**"
-	embed.add_field(name="High:", value=high_str)
-	low_str = "SVM: **$" + "{:.2f}".format(hlvc["svm"]["low"]) + "**\n"
-	low_str = low_str + "SVML: **$" + "{:.2f}".format(hlvc["svml"]["low"]) + "**\n"
-	low_str = low_str + "LR: **$" + "{:.2f}".format(hlvc["lr"]["low"]) + "**\n"
-	low_str = low_str + "Avg: **$" + "{:.2f}".format(hlvc["avg"]["low"]) + "**"
-	embed.add_field(name="Low:", value=low_str)
-	vola_str = "SVM: ±**" + "{:.2f}".format(hlvc["svm"]["volatility"]) + "%**\n"
-	vola_str = vola_str + "SVML: ±**" + "{:.2f}".format(hlvc["svml"]["volatility"]) + "%**\n"
-	vola_str = vola_str + "LR: ±**" + "{:.2f}".format(hlvc["lr"]["volatility"]) + "%**\n"
-	vola_str = vola_str + "Avg: ±**" + "{:.2f}".format(hlvc["avg"]["volatility"]) + "%**\n"
-	embed.add_field(name="Volatility:", value=vola_str)
-	conf_str = "SVM: **" + "{:.2f}".format(hlvc["svm"]["confidence"] * 100) + "%**"
-	if hlvc["svm"]["confidence"] * 100 < 35:
-		conf_str = conf_str + " :warning:"
-	conf_str = conf_str + "\n"
-	conf_str = conf_str + "SVML: **" + "{:.2f}".format(hlvc["svml"]["confidence"] * 100) + "%**"
-	if hlvc["svml"]["confidence"] * 100 < 35:
-		conf_str = conf_str + " :warning:"
-	conf_str = conf_str + "\n"
-	conf_str = conf_str + "LR: **" + "{:.2f}".format(hlvc["lr"]["confidence"] * 100) + "%**"
-	if hlvc["lr"]["confidence"] * 100 < 35:
-		conf_str = conf_str + " :warning:"
-	conf_str = conf_str + "\n"
-	conf_str = conf_str + "Avg: **" + "{:.2f}".format(hlvc["avg"]["confidence"] * 100) + "%**"
-	if hlvc["avg"]["confidence"] * 100 < 35:
-		conf_str = conf_str + " :warning:"
-	embed.add_field(name="Confidence:", value=conf_str)
-	embed.add_field(name="Time Scale:", value="From: **"+ticks[0] + " TCT**\nTo: **" + ticks[8] + " TCT**")
-	embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely it's predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\n**Graphs are for visual aid, not sound advice. Trend is also the more realistic result.**", inline=False)
+	embed.add_field(name="Current Price:", value="**$" + "{:.2f}".format(hlvc["price"]) + "**", inline=True)
+
+	embed.add_field(name="Predicted High:", value="**$" + "{:.2f}".format(hlvc["high"]) + "**", inline=True)
+
+	embed.add_field(name="Predicted Low:", value="**$" + "{:.2f}".format(hlvc["low"]) + "**", inline=True)
+
+	vola_str = "Max Swing: ±**" + "{:.2f}".format(hlvc["volatility"]) + "%**\n"
+	vola_str += "Direction: **" + "{:+.2f}".format(hlvc["actual"]) + "%**"
+	embed.add_field(name="Volatility:", value=vola_str, inline=True)
+
+	conf_val = hlvc["confidence"] * 100
+	conf_str = "**" + "{:.2f}".format(conf_val) + "%**"
+	if conf_val < 35:
+		conf_str += " :warning:"
+	elif conf_val >= 80:
+		conf_str += " :white_check_mark:"
+	embed.add_field(name="Confidence:", value=conf_str, inline=True)
+
+	embed.add_field(name="Time Scale:", value="From: **" + ticks[0] + " TCT**\nTo: **" + ticks[8] + " TCT**", inline=True)
+
+	embed.add_field(name="Model:", value="XGBoost w/ technical indicators\n(SMA, EMA, RSI, MACD, Bollinger, ATR, ROC)", inline=False)
+	embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely the predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\nSmaller timeframes are more prone to incorrect outcomes.\n\n**Graphs are for visual aid, not sound advice.**", inline=False)
+
 	await message.channel.send(embed=embed, mention_author=False, reference=message)
 	await message.channel.send(file=discord.File(graph_return[0]))
 	return

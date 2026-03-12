@@ -74,15 +74,16 @@ def import_from_tornsy(ticker, intervals, limit=-1):
 	
 	dt = {"date":[], "Open":[], "High":[], "Low":[], "Close":[]}
 
-	# Only grab previous entries if there are exactly 2000 entries.
+	# Only grab previous entries if there are exactly 1440 m1 entries corresponding to one day.
 	# Or limit >= 1
-	if len(ohlc_data["data"]) == 2000 and limit > 0:
+	max_items = 1440
+	if len(ohlc_data["data"]) == max_items and limit > 0:
 		cdate = str(ohlc_data["data"][0][0])
 		ohlcs = []
 		
 		lim = 0
 		while True:
-			ohlc = get_tornsy_candles(ticker, "m1", str(2000), cdate)
+			ohlc = get_tornsy_candles(ticker, "m1", str(max_items), cdate)
 			if not ohlc:
 				return
 
@@ -90,7 +91,7 @@ def import_from_tornsy(ticker, intervals, limit=-1):
 			ohlcs.insert(0, ohlc)
 			# Don't grab another set because Tornsy lacks history
 			# or if we hit the cap on importing data
-			if len(ohlc["data"]) < 2000 or lim == limit:
+			if len(ohlc["data"]) < max_items or lim == limit:
 				break
 			lim += 1
 			time.sleep(0.05)

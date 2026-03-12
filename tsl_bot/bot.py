@@ -36,7 +36,7 @@ class Bot(discord.Client):
 	set_author_notif = author.set_author_notif
 
 	# Slash command handling
-	def __init__(self, *, intents: config.intents):
+	def __init__(self, *, intents: discord.Intents):
 		super().__init__(intents=intents)
 		self.tree = app_commands.CommandTree(self)
 		
