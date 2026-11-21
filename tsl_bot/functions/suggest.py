@@ -172,12 +172,30 @@ def build_record_embed(horizon, days=90):
 
 
 async def post_suggestions(self, embed):
+	"""Send to every configured suggestion channel. Returns how many succeeded."""
+	sent = 0
 	for channel_id in config.suggestion_channels["id"]:
 		try:
 			channel = await self.fetch_channel(channel_id)
 			await channel.send(embed=embed)
+			sent += 1
 		except discord.DiscordException:
 			tsl_lib.util.write_log("[WARNING] Could not post suggestions to channel " + str(channel_id), tsl_lib.util.current_date())
+	return sent
+
+
+def prepare_suggestions(horizon, record=True):
+	"""
+	Everything the scheduled post does short of sending it: grade old picks,
+	scan, optionally record the new picks, and build the embed. Shared by the
+	scheduler and /force_suggestions so a forced run tests the real path.
+	CPU heavy - call from a worker thread.
+	"""
+	grade_open_suggestions()
+	result = run_scan(horizon)
+	if record:
+		record_picks(result)
+	return result, build_picks_embed(result)
 
 
 def make_suggestions(self, horizon):
@@ -185,8 +203,5 @@ def make_suggestions(self, horizon):
 	Scheduled entry point. Runs on the scheduler thread since training is CPU
 	heavy, then hands the embed to the bot loop to post.
 	"""
-	grade_open_suggestions()
-	result = run_scan(horizon)
-	record_picks(result)
-	embed = build_picks_embed(result)
+	_, embed = prepare_suggestions(horizon, record=True)
 	asyncio.run_coroutine_threadsafe(self.post_suggestions(embed), self.loop)

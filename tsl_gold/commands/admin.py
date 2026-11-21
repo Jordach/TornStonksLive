@@ -62,13 +62,25 @@ async def sync(interaction: discord.Interaction):
 	tsl_lib.util.write_log("[ADMIN] Command tree synced by " + interaction.user.display_name + ".", tsl_lib.util.current_date())
 	print("Synced slash command tree to Discord.")
 
-@client.tree.command(name="force_suggestions", description="Immediately post upswing suggestions to the suggestion channels.")
+@client.tree.command(name="force_suggestions", description="Run the scheduled upswing suggestions now, privately, here, or to the suggestion channels.")
 @app_commands.default_permissions(administrator=True)
-@app_commands.choices(horizon=[
-	app_commands.Choice(name="Daily (+0.5% after 3 days)", value="daily"),
-	app_commands.Choice(name="Weekly (+1% after 7 days)", value="weekly"),
-])
-async def force_suggestions(interaction: discord.Interaction, horizon: str = "daily"):
+@app_commands.describe(
+	horizon="Which scheduled post to run.",
+	destination="Where to send it. Preview and This Channel are tests and are not tracked by default.",
+	record="Save the picks to the track record. Defaults to on only for Suggestion Channels.",
+)
+@app_commands.choices(
+	horizon=[
+		app_commands.Choice(name="Daily (+0.5% after 3 days)", value="daily"),
+		app_commands.Choice(name="Weekly (+1% after 7 days)", value="weekly"),
+	],
+	destination=[
+		app_commands.Choice(name="Preview (only you can see it)", value="preview"),
+		app_commands.Choice(name="This Channel", value="here"),
+		app_commands.Choice(name="Suggestion Channels (live post)", value="channels"),
+	],
+)
+async def force_suggestions(interaction: discord.Interaction, horizon: str = "daily", destination: str = "preview", record: bool = None):
 	await interaction.response.defer(ephemeral=True)
 
 	if not _is_admin(interaction):
@@ -78,18 +90,40 @@ async def force_suggestions(interaction: discord.Interaction, horizon: str = "da
 	import asyncio
 	import tsl_bot.functions.suggest as suggest
 
-	embed = discord.Embed(title="")
-	client.set_author_interaction(interaction, embed)
-	try:
-		await asyncio.to_thread(suggest.grade_open_suggestions)
-		result = await asyncio.to_thread(suggest.run_scan, horizon)
-		await asyncio.to_thread(suggest.record_picks, result)
-		await client.post_suggestions(suggest.build_picks_embed(result))
-		embed.color = discord.Color.green()
-		embed.add_field(name="Suggestions Posted", value=str(len(result["picks"])) + " " + horizon + " pick(s) sent to " + str(len(config.suggestion_channels["id"])) + " channel(s).")
-	except Exception as e:
-		embed.color = discord.Color.red()
-		embed.add_field(name="Failed", value=repr(e)[:1000])
-	await interaction.followup.send(embed=embed, ephemeral=True)
+	live = destination == "channels"
+	if record is None:
+		# Test runs shouldn't skew the track record unless explicitly asked to
+		record = live
 
-	tsl_lib.util.write_log("[ADMIN] " + horizon + " suggestions forced by " + interaction.user.display_name + ".", tsl_lib.util.current_date())
+	status = discord.Embed(title="")
+	client.set_author_interaction(interaction, status)
+	try:
+		# Same function the 00:05 TCT scheduler job uses
+		result, picks_embed = await asyncio.to_thread(suggest.prepare_suggestions, horizon, record)
+		if not live:
+			picks_embed.title = "[Test] " + picks_embed.title
+
+		if destination == "preview":
+			await interaction.followup.send(embed=picks_embed, ephemeral=True)
+			where = "you (preview)"
+		elif destination == "here":
+			await interaction.channel.send(embed=picks_embed)
+			where = "this channel"
+		else:
+			sent = await client.post_suggestions(picks_embed)
+			where = str(sent) + "/" + str(len(config.suggestion_channels["id"])) + " suggestion channel(s)"
+
+		status.color = discord.Color.green()
+		status.add_field(
+			name="Suggestions Sent",
+			value=str(len(result["picks"])) + " " + horizon + " pick(s) sent to " + where + ".\nTrack record: **" + ("recorded" if record else "not recorded") + "**",
+		)
+	except tsl_lib.analysis.upswing.StaleDataError as e:
+		status.color = discord.Color.orange()
+		status.add_field(name="Data Not Ready", value=str(e)[:1000])
+	except Exception as e:
+		status.color = discord.Color.red()
+		status.add_field(name="Failed", value=repr(e)[:1000])
+	await interaction.followup.send(embed=status, ephemeral=True)
+
+	tsl_lib.util.write_log("[ADMIN] " + horizon + " suggestions forced to " + destination + " (record=" + str(record) + ") by " + interaction.user.display_name + ".", tsl_lib.util.current_date())
