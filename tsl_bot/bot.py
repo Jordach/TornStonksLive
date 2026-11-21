@@ -47,23 +47,20 @@ class Bot(discord.Client):
 
 		await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Torn City Stocks"))
 		if config.enable_suggestions:
+			config.last_pred_id = []
 			for key in range(0, len(config.suggestion_channels["id"])):
 				channel = await self.fetch_channel(config.suggestion_channels["id"][key])
-				pred_message = await channel.history(limit=1).flatten()
+				# history() is an async iterator in discord.py 2.x (.flatten() was removed)
+				pred_message = [msg async for msg in channel.history(limit=1)]
 				three = "3️⃣"
-				global not_more
 				# Avoid trying to get messages from completely empty channels
 				if len(pred_message) == 0:
 					continue
 				elif len(pred_message[0].reactions) == 0:
 					continue
-				if pred_message[0].reactions[0] == three:
-					not_more = True
-				else:
-					not_more = False
-				global last_pred_id
-				last_pred_id = []
-				last_pred_id.append(pred_message[0])
+				# Compare the emoji, not the Reaction object, against the string
+				config.rand_not_more = str(pred_message[0].reactions[0].emoji) == three
+				config.last_pred_id.append(pred_message[0])
 		tsl_lib.util.write_log("[STARTUP] TornStonks Live started.", tsl_lib.util.current_date())
 		config.bot_started = True
 

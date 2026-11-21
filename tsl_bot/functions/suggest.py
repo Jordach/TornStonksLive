@@ -103,13 +103,9 @@ def make_suggestions(self):
 	if len(stocks) >= 5:
 		not_more = False
 
-		# Find biggest predicted gain
-		up_tick = ""
-		up = 0
-		for ticker in stocks:
-			if stock_data[ticker]["actual"] > up:
-				up = stock_data[ticker]["actual"]
-				up_tick = ticker
+		# Find biggest predicted gain (max/min rather than a 0 threshold, which
+		# left the ticker empty and raised KeyError when nothing was predicted up/down)
+		up_tick = max(stocks, key=lambda t: stock_data[t]["actual"])
 
 		best_up = stock_data[up_tick]
 		best_gain = stock_data[up_tick]
@@ -119,12 +115,7 @@ def make_suggestions(self):
 
 		# Find biggest predicted loss
 		stocks = [*stock_data.keys()]
-		down_tick = ""
-		down = 0
-		for ticker in stocks:
-			if stock_data[ticker]["actual"] < down:
-				down = stock_data[ticker]["actual"]
-				down_tick = ticker
+		down_tick = min(stocks, key=lambda t: stock_data[t]["actual"])
 
 		best_down = stock_data[down_tick]
 		best_loss = stock_data[down_tick]

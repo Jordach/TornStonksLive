@@ -28,10 +28,10 @@ async def post_volatility(self, stocks, timestr, limit, timestart, perc):
 
 def process_volatility(self):
 	stock_data = []
-	for i in range(len(tsl_lib.util.stock_lut)):
-		ticker = tsl_lib.util.stock_lut[i].lower()
+	for i in range(len(tsl_lib.stock_lut)):
+		ticker = tsl_lib.stock_lut[i].lower()
 		try:
-			ohlc = tsl_lib.db.get_stock_from_db(ticker, "m30", limit=2)
+			ohlc = tsl_lib.db.get_stock(ticker, "m30", limit=2)
 			vola_real = ((ohlc["Low"][0] - ohlc["High"][0]) / ohlc["High"][0]) * 100
 			volatility = abs(vola_real)
 
@@ -50,10 +50,10 @@ def process_volatility(self):
 
 def process_daily_volatility(self):
 	stock_data = []
-	for i in range(len(tsl_lib.util.stock_lut)):
-		ticker = tsl_lib.util.stock_lut[i].lower()
+	for i in range(len(tsl_lib.stock_lut)):
+		ticker = tsl_lib.stock_lut[i].lower()
 		try:
-			ohlc = tsl_lib.db.get_stock_from_db(ticker, "d1", limit=2)
+			ohlc = tsl_lib.db.get_stock(ticker, "d1", limit=2)
 			vola_real = ((ohlc["Low"][0] - ohlc["High"][0]) / ohlc["High"][0]) * 100
 			volatility = abs(vola_real)
 			if ohlc["Close"][0] > ohlc["Open"][0]:
@@ -67,18 +67,18 @@ def process_daily_volatility(self):
 		stock_data.sort(key=lambda tup: tup[2], reverse=True)
 		self.loop.create_task(self.post_volatility(stock_data, "day: ", 20, 60*60*24, "0.75"))
 	else:
-		tsl_lib.util.write_log("[NOTICE] No stocks to post. " + ticker, tsl_lib.util.current_date())
+		tsl_lib.util.write_log("[NOTICE] No stocks to post.", tsl_lib.util.current_date())
 
 def process_weekly_volatility(self):
 	stock_data = []
-	for i in range(len(tsl_lib.util.stock_lut)):
-		ticker = tsl_lib.util.stock_lut[i].lower()
+	for i in range(len(tsl_lib.stock_lut)):
+		ticker = tsl_lib.stock_lut[i].lower()
 		try:
 			# This runs once a week, I think we'll be fine
-			ohlc = tsl_lib.db.get_tornsy_candlesticks(ticker, "w1", "2")
+			ohlc = tsl_lib.db.get_tornsy_data(ticker, "w1", "2")
 			volatility = abs((float(ohlc["data"][0][3]) - float(ohlc["data"][0][2])) / float(ohlc["data"][0][2])) * 100
 			vola_real = (float(ohlc["data"][0][3]) - float(ohlc["data"][0][2])) / float(ohlc["data"][0][2]) * 100
-			if ohlc["data"][0][1] < ohlc["data"][0][4]:
+			if float(ohlc["data"][0][1]) < float(ohlc["data"][0][4]):
 				vola_real *= -1
 			if volatility >= 1.25:
 				stock_data.append((ticker, volatility, vola_real))
