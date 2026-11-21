@@ -1,7 +1,7 @@
 """
 Automated longer-term suggestions at daily and weekly scales:
 
-	📈 Upswing     - TA-backed stocks expected to rise soon (buy now).
+	📈 Upswing     - stocks expected to rise soon, confirmed by chart signals (buy now).
 	📉 Buy the Dip - stocks expected to drop soon and then recover: set a buy
 	                 order at the dip price and hold for the upswing.
 
@@ -22,12 +22,17 @@ import tsl_config.config as config
 swing = tsl_lib.analysis.swing
 
 
+def _dt(ts):
+	return datetime.fromtimestamp(int(ts), timezone.utc)
+
+
 def _tct(ts):
-	return datetime.fromtimestamp(int(ts), timezone.utc).strftime("%d/%m/%y")
+	return _dt(ts).strftime("%d/%m/%y")
 
 
-def _short_date(ts):
-	return datetime.fromtimestamp(int(ts), timezone.utc).strftime("%d/%m")
+def _day(ts):
+	"""e.g. "Mon 23/11" - weekday helps on a 24/7 market where dates blur together."""
+	return _dt(ts).strftime("%a %d/%m")
 
 
 def _pct(val, signed=True):
@@ -38,15 +43,6 @@ def _pct(val, signed=True):
 
 def _money(val):
 	return "$" + "{:,.2f}".format(val)
-
-
-def _lift(val):
-	"""Truncate rather than round, so a 1.749x stock never shows as meeting a 1.75x bar."""
-	return "{:.2f}×".format(math.floor(val * 100) / 100)
-
-
-def _signals(n):
-	return str(n) + (" signal" if n == 1 else " signals")
 
 
 def _live_stock(ticker):
@@ -118,46 +114,53 @@ def record_picks(results):
 			tsl_lib.db.suggestion_record(result["horizon"], result["direction"], pick["ticker"], result["as_of"], pick["close"], target, pick["probability"])
 
 
+def _chance(pick, result):
+	return "**" + _pct(pick["probability"], False) + "** chance (a random stock: " + _pct(result["base_rate"], False) + ")"
+
+
 def _up_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
 	value = _stock_heading(pick["ticker"])
-	value += "\nBuy near **" + _money(pick["close"]) + "** → target **" + _money(pick["target"]) + "** by " + _short_date(result["expires"])
+	value += "\nBuy around **" + _money(pick["close"]) + "**, target **" + _money(pick["target"]) + "** by the close on " + _day(result["target_day"])
 	if live is not None:
-		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + ")"
+		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + " since the close)"
 		if live >= pick["target"]:
-			value += " · target already reached"
-	value += "\n**" + str(pick["bull_score"]) + "/" + str(len(swing.BULL_SIGNALS)) + " TA signals:** " + " · ".join(pick["signals"])
+			value += ", target already reached"
+	n = pick["bull_score"]
+	if n:
+		value += "\n**" + str(n) + " of " + str(len(swing.BULL_SIGNALS)) + " chart signals:** " + ", ".join(pick["signals"])
+	else:
+		value += "\n**No chart signals yet**"
 	if pick["context"]:
-		value += "\nContext: " + " · ".join(pick["context"])
-	value += "\nChance **" + _pct(pick["probability"], False) + "** (" + _lift(pick["lift"]) + " usual)"
-	value += " · typical day ±" + "{:.2f}".format(pick["atr_pct"]) + "%"
+		value += "\nAlso: " + ", ".join(pick["context"])
+	value += "\n" + _chance(pick, result) + " · moves about ±" + "{:.2f}".format(pick["atr_pct"]) + "% a day"
 	return value
 
 
 def _dip_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
 	value = _stock_heading(pick["ticker"])
-	value += "\nBuy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + ") until " + _short_date(result["dip_deadline"])
-	value += "\nRecovery target **" + _money(pick["target"]) + "** by " + _short_date(result["expires"])
+	value += "\nSet a buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + "), keep it until " + _day(result["target_day"])
+	value += "\nIf it fills, expect **" + _money(pick["target"]) + "** or better by the close on " + _day(result["recover_day"])
 	if live is not None:
 		value += "\nNow " + _money(live)
 		if live <= pick["buy_zone"]:
-			value += " · ✅ in the buy zone"
+			value += ", ✅ already at the buy price"
 		else:
-			value += " · " + "{:.2f}".format((live / pick["buy_zone"] - 1) * 100) + "% above the buy zone"
+			value += ", " + "{:.2f}".format((live / pick["buy_zone"] - 1) * 100) + "% above the buy price"
 	if pick["signals"]:
-		value += "\nDrop signs: " + " · ".join(pick["signals"])
-	value += "\nSetup: " + " · ".join(pick["context"])
-	value += "\nChance of dip + recovery **" + _pct(pick["probability"], False) + "** (" + _lift(pick["lift"]) + " usual)"
+		value += "\nSigns of a short-term drop: " + ", ".join(pick["signals"])
+	value += "\nWhy: " + ", ".join(pick["context"])
+	value += "\n" + _chance(pick, result) + " of the dip and recovery"
 	return value
 
 
 def _ranking_lines(result, limit):
 	lines = []
 	for i, r in enumerate(result["ranking"][:limit]):
-		line = "`" + str(i + 1).rjust(2) + "` **" + r["ticker"] + "** " + _pct(r["probability"], False) + " (" + _lift(r["lift"]) + ")"
+		line = "`" + str(i + 1).rjust(2) + "` **" + r["ticker"] + "** " + _pct(r["probability"], False)
 		if result["direction"] == "up":
-			line += " " + str(r["bull_score"]) + "sig"
+			line += " · " + str(r["bull_score"]) + " sig"
 		if r["qualifies"]:
 			line += " ✅"
 		lines.append(line)
@@ -167,52 +170,49 @@ def _ranking_lines(result, limit):
 def _stat_line(direction, stats):
 	icon = swing.DIRECTIONS[direction]["icon"]
 	if direction == "up":
-		return (icon + " Picks hit **" + _pct(stats["precision"], False) + "** vs **" + _pct(stats["base_rate"], False) + "** usual"
-			+ " · avg **" + _pct(stats["avg_return"]) + "** vs " + _pct(stats["base_avg_return"])
-			+ " · closed higher " + _pct(stats["closed_higher"], False))
-	return (icon + " Dip came **" + _pct(stats["fill_rate"], False) + "** of the time; bought there: avg **" + _pct(stats["dip_return"]) + "**, "
-		+ "**" + _pct(stats["dip_win_rate"], False) + "** in profit by the recovery day (buying any stock's dip: "
-		+ _pct(stats["base_dip_return"]) + ", " + _pct(stats["base_dip_win_rate"], False) + ")")
+		return (icon + " Upswing picks reached their target **" + _pct(stats["precision"], False) + "** of the time (a random stock: " + _pct(stats["base_rate"], False) + "), "
+			+ "averaging **" + _pct(stats["avg_return"]) + "** each.")
+	return (icon + " The dip came **" + _pct(stats["fill_rate"], False) + "** of the time. When it did, buying it averaged **" + _pct(stats["dip_return"]) + "** "
+		+ "and **" + _pct(stats["dip_win_rate"], False) + "** ended in profit (buying any stock's dip: " + _pct(stats["base_dip_return"]) + ", " + _pct(stats["base_dip_win_rate"], False) + ").")
+
+
+def _verdict(direction, result):
+	"""One plain line per section for the description: what to look at today."""
+	info = swing.DIRECTIONS[direction]
+	if result["picks"]:
+		return info["icon"] + " " + info["label"] + ": **" + ", ".join(_stock_label(p["ticker"]) for p in result["picks"]) + "**"
+	return info["icon"] + " " + info["label"] + ": no strong candidate today" + (", see the watchlist below" if result["watchlist"] else "")
 
 
 def build_picks_embed(results, ranking=False):
 	"""
 	Embed for {direction: scan result}. ranking=True lists stocks by chance
-	instead of only the qualifying picks.
+	instead of the picks and watchlist.
 	"""
 	first = next(iter(results.values()))
 	horizon = first["horizon"]
 	hz = swing.HORIZONS[horizon]
 	dirs = list(results)
+	pct = "{:.1f}".format(hz["threshold"] * 100) + "%"
 
 	if len(dirs) == 1:
 		info = swing.DIRECTIONS[dirs[0]]
 		title = info["icon"] + " " + hz["label"] + " " + info["label"] + " Suggestions"
 	else:
-		title = "📊 " + hz["label"] + " Swing Suggestions"
+		title = "📊 " + hz["label"] + " Stock Suggestions"
 
-	desc = "From the **" + _tct(first["as_of"]) + "** daily close\n"
-	for d in dirs:
-		info = swing.DIRECTIONS[d]
-		desc += info["icon"] + " **" + info["label"] + "**: " + swing.describe(horizon, d)
-		if d == "up" and results[d]["min_signals"]:
-			desc += ", backed by " + str(results[d]["min_signals"]) + "+ TA signals"
-		desc += " (usually " + _pct(results[d]["base_rate"], False) + " of stocks)\n"
-
+	desc = "Based on closing prices on **" + _day(first["as_of"]) + "**.\n"
+	if "up" in dirs:
+		r = results["up"]
+		desc += "📈 **Upswing**: expected to rise at least " + pct + " by the close on " + _day(r["target_day"])
+		if r["min_signals"]:
+			desc += ", confirmed by " + str(r["min_signals"]) + "+ chart signals"
+		desc += ".\n"
+	if "dip" in dirs:
+		r = results["dip"]
+		desc += "📉 **Buy the Dip**: expected to fall " + pct + " by " + _day(r["target_day"]) + ", then recover above the " + _day(first["as_of"]) + " close by " + _day(r["recover_day"]) + ".\n"
 	if not ranking:
-		# Name the picks in the description too: notification previews and
-		# Discord's "Copy Text" only carry the title and description, not fields
-		desc += "\n**Picks:**\n"
-		for d in dirs:
-			info = swing.DIRECTIONS[d]
-			result = results[d]
-			if result["picks"]:
-				names = ", ".join(_stock_label(p["ticker"]) for p in result["picks"])
-			elif result["ranking"]:
-				names = "none qualify (closest: " + _stock_label(result["ranking"][0]["ticker"]) + ")"
-			else:
-				names = "none qualify"
-			desc += info["icon"] + " " + info["label"] + ": " + names + "\n"
+		desc += "\n**Today:**\n" + "\n".join(_verdict(d, results[d]) for d in dirs)
 
 	embed = discord.Embed(title=title, description=desc.strip())
 	embed.color = discord.Color.blue()
@@ -223,7 +223,7 @@ def build_picks_embed(results, ranking=False):
 			# One kind: every stock across two columns
 			lines = _ranking_lines(results[dirs[0]], len(results[dirs[0]]["ranking"]))
 			half = (len(lines) + 1) // 2
-			embed.add_field(name="Chance:", value="\n".join(lines[:half]) or "-", inline=True)
+			embed.add_field(name="Chance of the move:", value="\n".join(lines[:half]) or "-", inline=True)
 			embed.add_field(name="​", value="\n".join(lines[half:]) or "-", inline=True)
 		else:
 			for d in dirs:
@@ -233,41 +233,30 @@ def build_picks_embed(results, ranking=False):
 		for d in dirs:
 			info = swing.DIRECTIONS[d]
 			result = results[d]
-			if result["picks"]:
-				for i, pick in enumerate(result["picks"]):
-					value = _up_value(pick, result) if d == "up" else _dip_value(pick, result)
-					title = info["icon"] + " " + info["label"] + " #" + str(i + 1) + " · " + pick["ticker"]
-					name = _stock_name(pick["ticker"])
-					if name != pick["ticker"]:
-						title += " · " + name
-					embed.add_field(name=title, value=value, inline=False)
-			else:
-				need = "**" + _lift(result["min_lift"]) + "** the usual chance"
-				if d == "up" and result["min_signals"]:
-					need += " and " + str(result["min_signals"]) + "+ TA signals"
-				msg = "Nothing qualifies today (needs " + need + ")."
-				if result["ranking"]:
-					closest = result["ranking"][0]
-					msg += "\nClosest: " + _stock_heading(closest["ticker"]) + " · " + _pct(closest["probability"], False) + " (" + _lift(closest["lift"])
-					msg += (", " + _signals(closest["bull_score"]) + ")" if d == "up" else ")")
-				embed.add_field(name=info["icon"] + " " + info["label"] + ":", value=msg, inline=False)
+			render = _up_value if d == "up" else _dip_value
+			for i, pick in enumerate(result["picks"]):
+				embed.add_field(name=info["icon"] + " " + info["label"] + " #" + str(i + 1) + ": " + _stock_label(pick["ticker"]), value=render(pick, result), inline=False)
+			if not result["picks"]:
+				for item in result["watchlist"]:
+					value = "*Not a recommendation yet: " + "; ".join(item["shortfall"]) + ".*\n" + render(item, result)
+					embed.add_field(name="👀 " + info["label"] + " watchlist: " + _stock_label(item["ticker"]), value=value, inline=False)
 
 	stat_lines = []
 	period = None
 	for d in dirs:
 		stats = results[d].get("stats")
 		if stats and stats.get("n_picks"):
-			period = stats["from"] + " - " + stats["to"]
+			period = stats["from"] + " to " + stats["to"]
 			stat_lines.append(_stat_line(d, stats))
 	if stat_lines:
-		embed.add_field(name="Backtest on unseen data (" + period + "):", value="\n".join(stat_lines), inline=False)
+		embed.add_field(name="How these picks did over the past year (" + period + "):", value="\n".join(stat_lines), inline=False)
 
 	tips = []
 	if "up" in dirs:
-		tips.append("📈 Upswings: TA-backed buys at today's price.")
+		tips.append("📈 Upswing: a buy at today's price.")
 	if "dip" in dirs:
-		tips.append("📉 Buy the Dip: set a buy order at the buy zone; the dip only comes about 1 in 3 times, so if it doesn't, skip it.")
-	tips.append("Results are measured at the close, not intraday spikes. /suggest view:Track Record shows past picks. This bot is not sound advice.")
+		tips.append("📉 Buy the Dip: set a buy order at the buy price; the dip only comes about 1 in 3 times, so if it doesn't, skip it.")
+	tips.append("Watchlist stocks are close but don't meet the bar. /suggest view:Track Record shows how past picks did. This bot is not sound advice.")
 	embed.set_footer(text=" ".join(tips))
 	return embed
 
@@ -294,7 +283,7 @@ def _dip_summary(graded):
 		profit = sum(1 for r in filled if r[7] > 0)
 		avg_ret = sum(r[7] for r in filled) / len(filled)
 		value += ("\nOf those, recovered to target: **" + str(recovered) + "/" + str(len(filled)) + "** · in profit: **" + _pct(profit / len(filled), False) + "**"
-			"\nAvg return from buy zone: **" + _pct(avg_ret) + "**")
+			"\nAvg return from the buy price: **" + _pct(avg_ret) + "**")
 	return value
 
 
@@ -315,7 +304,7 @@ def build_record_embed(horizon, direction="both", days=90):
 	dirs = _directions(direction)
 	since = int(time.time()) - days * 86400
 
-	label = "Swing" if len(dirs) > 1 else swing.DIRECTIONS[dirs[0]]["label"]
+	label = "Stock" if len(dirs) > 1 else swing.DIRECTIONS[dirs[0]]["label"]
 	embed = discord.Embed(title=hz["label"] + " " + label + " Suggestions: Track Record", description="Last **" + str(days) + "** days")
 	embed.color = discord.Color.purple()
 	embed.set_thumbnail(url=config.stonks_png)
@@ -349,7 +338,7 @@ def build_record_embed(horizon, direction="both", days=90):
 			if d == "up":
 				line = "⏳" + icon + " " + _tct(as_of) + " **" + ticker + "** " + _money(entry) + " → " + _money(target)
 			else:
-				line = "⏳" + icon + " " + _tct(as_of) + " **" + ticker + "** buy zone " + _money(target)
+				line = "⏳" + icon + " " + _tct(as_of) + " **" + ticker + "** buy price " + _money(target)
 			if live:
 				line += " · now " + _money(live)
 			lines.append(line)

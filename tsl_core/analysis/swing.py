@@ -22,6 +22,7 @@ history. Every model also scores itself on a held-out final year it never
 trained on, using the same rules the bot picks with, so the posts can quote an
 honest track record instead of a bare confidence.
 """
+import math
 import threading
 import time
 from datetime import datetime, timezone
@@ -397,10 +398,13 @@ def _evidence(row, ticker, direction):
 		signals += _recent_patterns(ticker, False)[:2]
 		# The dip model leans on volatility and short-term position more than on
 		# classic bearish triggers, so always show those numbers
+		rsi7 = row["rsi7"]
+		mood = " (oversold)" if rsi7 < 30 else (" (overbought)" if rsi7 > 70 else "")
 		context = [
-			"{:+.1f}".format(row["sma20"] * 100) + "% vs 20d average, RSI(7) " + "{:.0f}".format(row["rsi7"]),
-			"long-term uptrend intact" if row["uptrend"] == 1 else ("above 100d average" if row["sma100"] > 0 else "below 100d average"),
-			"typical day ±" + "{:.2f}".format(row["atr"] * 100) + "%",
+			"{:.1f}".format(abs(row["sma20"]) * 100) + "% " + ("below" if row["sma20"] < 0 else "above") + " its 20-day average",
+			"short-term RSI " + "{:.0f}".format(rsi7) + mood,
+			"long-term uptrend intact" if row["uptrend"] == 1 else ("above its 100-day average" if row["sma100"] > 0 else "below its 100-day average"),
+			"typically moves ±" + "{:.2f}".format(row["atr"] * 100) + "% a day",
 		]
 	return signals, context
 
@@ -459,12 +463,22 @@ def scan(horizon, direction, tickers, top_n=3, min_lift=None):
 			entry["target"] = close * (1 + thr)
 		ranking.append(entry)
 
+	min_signals = DIRECTIONS[direction].get("min_signals", {}).get(horizon, 0)
 	picks = [r for r in ranking if r["qualifies"]][:top_n]
-	pick_ids = {id(r) for r in picks}
+	# Near misses, so quiet days still show what is closest and why it fell short
+	watchlist = [r for r in ranking if not r["qualifies"]][:2]
+	for r in watchlist:
+		short = []
+		if r["lift"] < min_lift:
+			short.append("chance is " + "{:.2f}".format(math.floor(r["lift"] * 100) / 100) + "× a random stock's, needs " + "{:.2f}".format(min_lift) + "×")
+		if direction == "up" and r["bull_score"] < min_signals:
+			short.append("only " + str(r["bull_score"]) + " of the " + str(min_signals) + " required chart signals")
+		r["shortfall"] = short
+	shown = {id(r) for r in picks + watchlist}
 	# Pattern lookups re-read the DB, so only explain the stocks actually shown
 	for r in ranking:
 		row = r.pop("_row")
-		if id(r) in pick_ids:
+		if id(r) in shown:
 			r["signals"], r["context"] = _evidence(row, r["ticker"], direction)
 
 	return {
@@ -476,8 +490,12 @@ def scan(horizon, direction, tickers, top_n=3, min_lift=None):
 		"dip_deadline": as_of + 86400 * (hz["days"] + 1),
 		"base_rate": base_rate,
 		"min_lift": min_lift,
-		"min_signals": DIRECTIONS[direction].get("min_signals", {}).get(horizon, 0),
+		"min_signals": min_signals,
+		# Closing days the targets are measured on (the candle dated that day)
+		"target_day": as_of + 86400 * hz["days"],
+		"recover_day": as_of + 86400 * hz["recover_days"],
 		"picks": picks,
+		"watchlist": watchlist,
 		"ranking": ranking,
 		"stats": dir_stats,
 	}
