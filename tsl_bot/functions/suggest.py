@@ -37,14 +37,16 @@ def _day(ts):
 
 def _deadline(day_ts):
 	"""
-	The close of a Torn day as a fixed TCT time plus a live Discord countdown,
-	e.g. "**Fri 27/11 23:59 TCT** (in 6 days)". Discord timestamps always render
-	in the viewer's own timezone, so the absolute time stays written in TCT and
-	only the timezone-independent relative form uses <t:...:R>. Timestamps only
-	render in descriptions and field values, not titles, names or footers.
+	The close of a Torn day as a fixed TCT time, then the same moment in the
+	reader's own timezone and a live countdown, e.g. for someone in UTC-7:
+	"**Fri 27/11 23:59 TCT** (27 November 2026 16:59 your time, in 6 days)".
+	Discord renders <t:...> in each viewer's local time, so the shared TCT
+	time stays as plain text. `f` (date + time) rather than `t`, since these
+	deadlines are days away. Timestamps only render in descriptions and field
+	values, not titles, names or footers.
 	"""
-	close = int(day_ts) + 86399
-	return "**" + _day(day_ts) + " 23:59 TCT** (<t:" + str(close) + ":R>)"
+	close = str(int(day_ts) + 86399)
+	return "**" + _day(day_ts) + " 23:59 TCT** (<t:" + close + ":f> your time, <t:" + close + ":R>)"
 
 
 def _pct(val, signed=True):
