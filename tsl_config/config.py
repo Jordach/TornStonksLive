@@ -30,7 +30,7 @@ gold_daily = ""
 gold_weekly = ""
 gold_monthly = ""
 
-# Scheduled daily/weekly upswing suggestions (see tsl_core/analysis/upswing.py)
+# Scheduled daily/weekly swing suggestions (see tsl_core/analysis/swing.py)
 enable_suggestions = False
 
 intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True, message_content=True)

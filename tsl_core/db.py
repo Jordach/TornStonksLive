@@ -339,24 +339,38 @@ def gold_user_force_set_days(user_id, n_days):
 
 ## Suggestion tracking
 
+_SUGGESTION_SCHEMA = (
+	"CREATE TABLE IF NOT EXISTS suggestions ("
+	"id integer PRIMARY KEY AUTOINCREMENT, "
+	"horizon text NOT NULL, direction text NOT NULL DEFAULT 'up', ticker text NOT NULL, as_of integer NOT NULL, "
+	"entry real NOT NULL, target real NOT NULL, probability real NOT NULL, "
+	"closed_hit integer, touched_hit integer, final_return real, best_return real, "
+	"UNIQUE(horizon, direction, ticker, as_of))"
+)
+
 def _suggestion_db():
 	con = sqlite3.connect(os.path.join(os.getcwd(), "db", "db_suggestions.db"))
-	con.execute(
-		"CREATE TABLE IF NOT EXISTS suggestions ("
-		"id integer PRIMARY KEY AUTOINCREMENT, "
-		"horizon text NOT NULL, ticker text NOT NULL, as_of integer NOT NULL, "
-		"entry real NOT NULL, target real NOT NULL, probability real NOT NULL, "
-		"closed_hit integer, touched_hit integer, final_return real, best_return real, "
-		"UNIQUE(horizon, ticker, as_of))"
-	)
+	con.execute(_SUGGESTION_SCHEMA)
+	cols = [row[1] for row in con.execute("PRAGMA table_info(suggestions)")]
+	if "direction" not in cols:
+		# Pre-downswing table: rebuild so the unique key includes direction.
+		# Every existing row was an upswing pick.
+		con.execute("ALTER TABLE suggestions RENAME TO suggestions_old")
+		con.execute(_SUGGESTION_SCHEMA)
+		con.execute(
+			"INSERT INTO suggestions (id, horizon, direction, ticker, as_of, entry, target, probability, closed_hit, touched_hit, final_return, best_return) "
+			"SELECT id, horizon, 'up', ticker, as_of, entry, target, probability, closed_hit, touched_hit, final_return, best_return FROM suggestions_old"
+		)
+		con.execute("DROP TABLE suggestions_old")
+		con.commit()
 	return con
 
-def suggestion_record(horizon, ticker, as_of, entry, target, probability):
+def suggestion_record(horizon, direction, ticker, as_of, entry, target, probability):
 	"""Store a posted suggestion. Re-posting the same pick for the same day is ignored."""
 	con = _suggestion_db()
 	con.execute(
-		"INSERT OR IGNORE INTO suggestions (horizon, ticker, as_of, entry, target, probability) VALUES (?, ?, ?, ?, ?, ?)",
-		(str(horizon), str(ticker).upper(), int(as_of), float(entry), float(target), float(probability)),
+		"INSERT OR IGNORE INTO suggestions (horizon, direction, ticker, as_of, entry, target, probability) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		(str(horizon), str(direction), str(ticker).upper(), int(as_of), float(entry), float(target), float(probability)),
 	)
 	con.commit()
 	con.close()
@@ -364,7 +378,7 @@ def suggestion_record(horizon, ticker, as_of, entry, target, probability):
 def suggestion_get_open():
 	"""Suggestions that have not been graded yet."""
 	con = _suggestion_db()
-	rows = con.execute("SELECT id, horizon, ticker, as_of, entry, target FROM suggestions WHERE closed_hit IS NULL").fetchall()
+	rows = con.execute("SELECT id, horizon, direction, ticker, as_of, entry, target FROM suggestions WHERE closed_hit IS NULL").fetchall()
 	con.close()
 	return rows
 
@@ -377,13 +391,13 @@ def suggestion_set_outcome(row_id, closed_hit, touched_hit, final_return, best_r
 	con.commit()
 	con.close()
 
-def suggestion_get_record(horizon, since=0):
-	"""Graded and open suggestions for a horizon, newest first."""
+def suggestion_get_record(horizon, direction, since=0):
+	"""Graded and open suggestions for a horizon and direction, newest first."""
 	con = _suggestion_db()
 	rows = con.execute(
 		"SELECT ticker, as_of, entry, target, probability, closed_hit, touched_hit, final_return, best_return "
-		"FROM suggestions WHERE horizon = ? AND as_of >= ? ORDER BY as_of DESC, probability DESC",
-		(str(horizon), int(since)),
+		"FROM suggestions WHERE horizon = ? AND direction = ? AND as_of >= ? ORDER BY as_of DESC, probability DESC",
+		(str(horizon), str(direction), int(since)),
 	).fetchall()
 	con.close()
 	return rows

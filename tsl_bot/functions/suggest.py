@@ -1,7 +1,8 @@
 """
-Automated longer-term suggestions: daily (+0.5% after 3 days) and weekly
-(+1% after 7 days) upswing picks. The analysis lives in
-tsl_core/analysis/upswing.py; this module turns it into Discord embeds, posts
+Automated longer-term suggestions at daily (0.5% move after 3 days) and weekly
+(1% move after 7 days) scales, in both directions: upswings for stocks likely
+to rise and downswings for stocks likely to fall. The analysis lives in
+tsl_core/analysis/swing.py; this module turns it into Discord embeds, posts
 scheduled picks and grades past picks so the bot keeps an honest track record.
 """
 import asyncio
@@ -14,7 +15,7 @@ import discord
 import tsl_core.functions as tsl_lib
 import tsl_config.config as config
 
-upswing = tsl_lib.analysis.upswing
+swing = tsl_lib.analysis.swing
 
 
 def _tct(ts):
@@ -24,7 +25,11 @@ def _tct(ts):
 def _pct(val, signed=True):
 	if val is None or (isinstance(val, float) and math.isnan(val)):
 		return "n/a"
-	return ("{:+.2f}" if signed else "{:.1f}").format(val * 100) + "%"
+	return ("{:+.2f}" if signed else "{:.0f}").format(val * 100) + "%"
+
+
+def _money(val):
+	return "$" + "{:,.2f}".format(val)
 
 
 def _live_stock(ticker):
@@ -38,17 +43,24 @@ def _live_stock(ticker):
 	return ticker.upper(), None
 
 
-def run_scan(horizon, top_n=3):
-	"""CPU heavy (training once a day) - call from a worker thread, not the event loop."""
-	return upswing.scan(horizon, tsl_lib.stock_lut, top_n=top_n)
+def _directions(direction):
+	return list(swing.DIRECTIONS) if direction in (None, "both") else [direction]
+
+
+def run_scan(horizon, direction="both", top_n=3):
+	"""
+	{direction: scan result} for one or both directions. CPU heavy (training
+	once a day) - call from a worker thread, not the event loop.
+	"""
+	return {d: swing.scan(horizon, d, tsl_lib.stock_lut, top_n=top_n) for d in _directions(direction)}
 
 
 def grade_open_suggestions():
 	"""Fill in outcomes for any posted suggestion whose window has closed."""
 	graded = 0
-	for row_id, horizon, ticker, as_of, entry, target in tsl_lib.db.suggestion_get_open():
+	for row_id, horizon, direction, ticker, as_of, entry, target in tsl_lib.db.suggestion_get_open():
 		try:
-			res = upswing.outcome(ticker, as_of, horizon, entry, target)
+			res = swing.outcome(ticker, as_of, horizon, direction, entry, target)
 		except Exception:
 			continue
 		if res is None:
@@ -58,116 +70,168 @@ def grade_open_suggestions():
 	return graded
 
 
-def record_picks(result):
-	for pick in result["picks"]:
-		tsl_lib.db.suggestion_record(result["horizon"], pick["ticker"], result["as_of"], pick["close"], pick["target"], pick["probability"])
+def record_picks(results):
+	for result in results.values():
+		for pick in result["picks"]:
+			tsl_lib.db.suggestion_record(result["horizon"], result["direction"], pick["ticker"], result["as_of"], pick["close"], pick["target"], pick["probability"])
 
 
-def build_picks_embed(result, ranking=False):
-	"""Embed for a scan result. ranking=True lists every stock instead of only qualifying picks."""
-	hz = upswing.HORIZONS[result["horizon"]]
-	base = result["base_rate"]
+def _pick_value(pick):
+	name, live = _live_stock(pick["ticker"])
+	value = _money(pick["close"]) + " → target **" + _money(pick["target"]) + "**"
+	if live is not None:
+		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + ")"
+		reached = (live >= pick["target"]) if pick["target"] > pick["close"] else (live <= pick["target"])
+		if reached:
+			value += " · target already reached"
+	value += "\nChance **" + _pct(pick["probability"], False) + "** ({:.1f}× usual)".format(pick["lift"])
+	value += " · typical day ±" + "{:.2f}".format(pick["atr_pct"]) + "%"
+	value += "\n*" + pick["notes"] + "*"
+	return name, value
 
-	embed = discord.Embed(
-		title=hz["label"] + " Upswing Suggestions",
-		description=(
-			"Target: **" + hz["desc"] + "** from the **" + _tct(result["as_of"]) + "** daily close.\n"
-			"Window closes: **00:00 " + _tct(result["expires"]) + " TCT**\n"
-			"Base rate (any stock hitting this): **" + _pct(base, False) + "**"
-		),
-	)
+
+def _ranking_lines(result, limit):
+	lines = []
+	for i, r in enumerate(result["ranking"][:limit]):
+		flag = " ✅" if r["lift"] >= result["min_lift"] else ""
+		lines.append("`" + str(i + 1).rjust(2) + "` **" + r["ticker"] + "** " + _pct(r["probability"], False) + " ({:.2f}×)".format(r["lift"]) + flag)
+	return lines
+
+
+def build_picks_embed(results, ranking=False):
+	"""
+	Embed for {direction: scan result}. ranking=True lists stocks by chance
+	instead of only the qualifying picks.
+	"""
+	first = next(iter(results.values()))
+	horizon = first["horizon"]
+	hz = swing.HORIZONS[horizon]
+	dirs = list(results)
+
+	if len(dirs) == 1:
+		title = swing.DIRECTIONS[dirs[0]]["icon"] + " " + hz["label"] + " " + swing.DIRECTIONS[dirs[0]]["label"] + " Suggestions"
+	else:
+		title = "📊 " + hz["label"] + " Swing Suggestions"
+
+	desc = "From the **" + _tct(first["as_of"]) + "** daily close · window ends **00:00 " + _tct(first["expires"]) + " TCT**\n"
+	for d in dirs:
+		info = swing.DIRECTIONS[d]
+		desc += info["icon"] + " " + info["label"] + ": close **" + swing.describe(horizon, d) + "**"
+		desc += " (usually " + _pct(results[d]["base_rate"], False) + " of stocks)\n"
+
+	embed = discord.Embed(title=title, description=desc.strip())
 	embed.color = discord.Color.blue()
 	embed.set_thumbnail(url=config.stonks_png)
 
 	if ranking:
-		lines = []
-		for i, r in enumerate(result["ranking"]):
-			flag = " ✅" if r["lift"] >= result["min_lift"] else ""
-			lines.append("`" + str(i + 1).rjust(2) + "` **" + r["ticker"] + "** " + _pct(r["probability"], False) + " ({:.2f}×)".format(r["lift"]) + flag)
-		# Embed fields cap at 1024 chars; 35 stocks fit comfortably in two columns
-		half = (len(lines) + 1) // 2
-		embed.add_field(name="Chance of Target:", value="\n".join(lines[:half]) or "-", inline=True)
-		embed.add_field(name="​", value="\n".join(lines[half:]) or "-", inline=True)
-	elif result["picks"]:
-		for i, pick in enumerate(result["picks"]):
-			name, live = _live_stock(pick["ticker"])
-			value = "Entry (close): **$" + "{:,.2f}".format(pick["close"]) + "**"
-			if live is not None:
-				value += " · Now: **$" + "{:,.2f}".format(live) + "**"
-			value += "\nTarget: **$" + "{:,.2f}".format(pick["target"]) + "**"
-			if live is not None and live >= pick["target"]:
-				value += " (already reached)"
-			value += "\nChance: **" + _pct(pick["probability"], False) + "** ({:.1f}× base)".format(pick["lift"])
-			value += " · ATR: " + "{:.2f}".format(pick["atr_pct"]) + "%"
-			value += "\n*" + pick["notes"] + "*"
-			embed.add_field(name=str(i + 1) + ". " + name + " (" + pick["ticker"] + ")", value=value, inline=False)
+		if len(dirs) == 1:
+			# One direction: every stock across two columns
+			lines = _ranking_lines(results[dirs[0]], len(results[dirs[0]]["ranking"]))
+			half = (len(lines) + 1) // 2
+			embed.add_field(name="Chance of Move:", value="\n".join(lines[:half]) or "-", inline=True)
+			embed.add_field(name="​", value="\n".join(lines[half:]) or "-", inline=True)
+		else:
+			# Both: the top of each list side by side
+			for d in dirs:
+				info = swing.DIRECTIONS[d]
+				embed.add_field(name=info["icon"] + " Most Likely " + info["label"] + "s:", value="\n".join(_ranking_lines(results[d], 15)) or "-", inline=True)
 	else:
-		closest = result["ranking"][0] if result["ranking"] else None
-		msg = "No stock is at least **{:.1f}×** more likely than the base rate today, so nothing is being suggested.".format(result["min_lift"])
-		if closest:
-			msg += "\nClosest: **" + closest["ticker"] + "** at " + _pct(closest["probability"], False) + " ({:.2f}×).".format(closest["lift"])
-		embed.add_field(name="No Strong Setups:", value=msg, inline=False)
+		for d in dirs:
+			info = swing.DIRECTIONS[d]
+			result = results[d]
+			if result["picks"]:
+				for i, pick in enumerate(result["picks"]):
+					name, value = _pick_value(pick)
+					embed.add_field(name=info["icon"] + " " + str(i + 1) + ". " + name + " (" + pick["ticker"] + ")", value=value, inline=False)
+			else:
+				msg = "Nothing stands out today (needs **{:.2f}×** the usual chance).".format(result["min_lift"])
+				if result["ranking"]:
+					closest = result["ranking"][0]
+					msg += "\nClosest: **" + closest["ticker"] + "** " + _pct(closest["probability"], False) + " ({:.2f}×)".format(closest["lift"])
+				embed.add_field(name=info["icon"] + " " + info["label"] + "s:", value=msg, inline=False)
 
-	stats = result.get("stats")
-	if stats:
-		embed.add_field(
-			name="Model Backtest (" + stats["from"] + " - " + stats["to"] + ", unseen data):",
-			value=(
-				"Top 3 picks each day hit target **" + _pct(stats["top3_precision"], False) + "** of the time vs **" + _pct(stats["base_rate"], False) + "** for any stock.\n"
-				"Avg return at window close: **" + _pct(stats["top3_avg_return"]) + "** vs **" + _pct(stats["base_avg_return"]) + "** · "
-				"Finished higher: **" + _pct(stats["top3_win_rate"], False) + "** · Touched target at some point: **" + _pct(stats["top3_touch_rate"], False) + "**"
-			),
-			inline=False,
+	stat_lines = []
+	period = None
+	for d in dirs:
+		stats = results[d].get("stats")
+		if not stats:
+			continue
+		period = stats["from"] + " - " + stats["to"]
+		moved = "higher" if swing.DIRECTIONS[d]["sign"] > 0 else "lower"
+		stat_lines.append(
+			swing.DIRECTIONS[d]["icon"] + " Top picks hit **" + _pct(stats["top3_precision"], False) + "** vs **" + _pct(stats["base_rate"], False) + "** usual"
+			+ " · avg **" + _pct(stats["top3_avg_return"]) + "**"
+			+ " · closed " + moved + " " + _pct(stats["top3_direction_rate"], False)
 		)
-	embed.set_footer(text="Picks are measured at the close of the window, not intraday spikes. Use /suggest record to see how past picks did. This bot is not sound advice.")
+	if stat_lines:
+		embed.add_field(name="Backtest on unseen data (" + period + "):", value="\n".join(stat_lines), inline=False)
+
+	footer = "Measured at the close of the window, not intraday spikes."
+	if "up" in dirs and "down" in dirs:
+		footer = "📈 Upswings: candidates to buy. 📉 Downswings: consider selling, or wait to buy cheaper. " + footer
+	footer += " See /suggest view:Track Record for past results. This bot is not sound advice."
+	embed.set_footer(text=footer)
 	return embed
 
 
-def build_record_embed(horizon, days=90):
-	hz = upswing.HORIZONS[horizon]
-	since = int(time.time()) - days * 86400
-	rows = tsl_lib.db.suggestion_get_record(horizon, since)
+def _record_summary(graded, direction):
+	n = len(graded)
+	closed = sum(r[5] for r in graded)
+	touched = sum(r[6] for r in graded)
+	sign = swing.DIRECTIONS[direction]["sign"]
+	right_way = sum(1 for r in graded if r[7] * sign > 0)
+	avg_ret = sum(r[7] for r in graded) / n
+	moved = "higher" if sign > 0 else "lower"
+	return (
+		"Closed at target: **" + str(closed) + "/" + str(n) + "** (" + _pct(closed / n, False) + ")\n"
+		"Touched target: **" + str(touched) + "/" + str(n) + "** (" + _pct(touched / n, False) + ")\n"
+		"Closed " + moved + ": **" + _pct(right_way / n, False) + "** · Avg return: **" + _pct(avg_ret) + "**"
+	)
 
-	embed = discord.Embed(title=hz["label"] + " Suggestions: Track Record", description="Target: **" + hz["desc"] + "** · last **" + str(days) + "** days")
+
+def build_record_embed(horizon, direction="both", days=90):
+	hz = swing.HORIZONS[horizon]
+	dirs = _directions(direction)
+	since = int(time.time()) - days * 86400
+
+	label = "Swing" if len(dirs) > 1 else swing.DIRECTIONS[dirs[0]]["label"]
+	embed = discord.Embed(title=hz["label"] + " " + label + " Suggestions: Track Record", description="Last **" + str(days) + "** days")
 	embed.color = discord.Color.purple()
 	embed.set_thumbnail(url=config.stonks_png)
 
-	graded = [r for r in rows if r[5] is not None]
-	open_rows = [r for r in rows if r[5] is None]
-	if not rows:
+	graded_all = []
+	open_all = []
+	for d in dirs:
+		rows = tsl_lib.db.suggestion_get_record(horizon, d, since)
+		graded = [r for r in rows if r[5] is not None]
+		graded_all += [(d, r) for r in graded]
+		open_all += [(d, r) for r in rows if r[5] is None]
+		info = swing.DIRECTIONS[d]
+		if graded:
+			embed.add_field(name=info["icon"] + " " + info["label"] + "s (" + str(len(graded)) + " graded, target " + swing.describe(horizon, d) + "):", value=_record_summary(graded, d), inline=False)
+
+	if not graded_all and not open_all:
 		embed.add_field(name="No History Yet:", value="No suggestions have been posted for this horizon in that period.", inline=False)
 		return embed
 
-	if graded:
-		n = len(graded)
-		closed = sum(r[5] for r in graded)
-		touched = sum(r[6] for r in graded)
-		avg_ret = sum(r[7] for r in graded) / n
-		wins = sum(1 for r in graded if r[7] > 0)
-		embed.add_field(
-			name="Summary (" + str(n) + " graded):",
-			value=(
-				"Closed at target: **" + str(closed) + "/" + str(n) + "** (" + _pct(closed / n, False) + ")\n"
-				"Touched target: **" + str(touched) + "/" + str(n) + "** (" + _pct(touched / n, False) + ")\n"
-				"Finished higher: **" + _pct(wins / n, False) + "** · Avg return: **" + _pct(avg_ret) + "**"
-			),
-			inline=False,
-		)
+	if graded_all:
+		graded_all.sort(key=lambda x: x[1][1], reverse=True)
 		lines = []
-		for ticker, as_of, entry, target, prob, closed_hit, touched_hit, final_ret, best_ret in graded[:12]:
+		for d, (ticker, as_of, entry, target, prob, closed_hit, touched_hit, final_ret, best_ret) in graded_all[:12]:
 			icon = "✅" if closed_hit else ("🟡" if touched_hit else "❌")
-			lines.append(icon + " " + _tct(as_of) + " **" + ticker + "** " + _pct(final_ret) + " (best " + _pct(best_ret) + ")")
+			lines.append(icon + swing.DIRECTIONS[d]["icon"] + " " + _tct(as_of) + " **" + ticker + "** " + _pct(final_ret) + " (best " + _pct(best_ret) + ")")
 		embed.add_field(name="Recent Results:", value="\n".join(lines), inline=False)
 
-	if open_rows:
+	if open_all:
+		open_all.sort(key=lambda x: x[1][1], reverse=True)
 		lines = []
-		for ticker, as_of, entry, target, prob, *_ in open_rows[:10]:
+		for d, (ticker, as_of, entry, target, prob, *_) in open_all[:10]:
 			_, live = _live_stock(ticker)
 			now = (" · now " + _pct(live / entry - 1)) if live else ""
-			lines.append("⏳ " + _tct(as_of) + " **" + ticker + "** $" + "{:,.2f}".format(entry) + " → $" + "{:,.2f}".format(target) + now)
+			lines.append("⏳" + swing.DIRECTIONS[d]["icon"] + " " + _tct(as_of) + " **" + ticker + "** " + _money(entry) + " → " + _money(target) + now)
 		embed.add_field(name="Still Open:", value="\n".join(lines), inline=False)
 
-	embed.set_footer(text="✅ closed at/above target · 🟡 touched target but closed below · ❌ missed")
+	embed.set_footer(text="✅ closed at/past target · 🟡 touched target but closed short · ❌ missed")
 	return embed
 
 
@@ -187,15 +251,15 @@ async def post_suggestions(self, embed):
 def prepare_suggestions(horizon, record=True):
 	"""
 	Everything the scheduled post does short of sending it: grade old picks,
-	scan, optionally record the new picks, and build the embed. Shared by the
-	scheduler and /force_suggestions so a forced run tests the real path.
-	CPU heavy - call from a worker thread.
+	scan both directions, optionally record the new picks, and build the embed.
+	Shared by the scheduler and /force_suggestions so a forced run tests the
+	real path. CPU heavy - call from a worker thread.
 	"""
 	grade_open_suggestions()
-	result = run_scan(horizon)
+	results = run_scan(horizon, "both")
 	if record:
-		record_picks(result)
-	return result, build_picks_embed(result)
+		record_picks(results)
+	return results, build_picks_embed(results)
 
 
 def make_suggestions(self, horizon):

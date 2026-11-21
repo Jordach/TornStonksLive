@@ -8,7 +8,7 @@ from tsl_core.analysis.search import pattern_scan as _pattern_scan
 from tsl_core.analysis.stochastic import get_stoch as _get_stoch
 from tsl_core.analysis.stochastic import get_stoch_osc as _get_stoch_osc
 from tsl_core.analysis.ulcer import get_ulcer as _get_ulcer
-import tsl_core.analysis.upswing as _upswing
+import tsl_core.analysis.swing as _swing
 from tsl_core.datestr import update_date as _update_date
 from tsl_core.db import get_stock_from_db as _get_stock_from_db
 from tsl_core.db import get_tornsy_candles as _get_tornsy_candles
@@ -151,7 +151,7 @@ class analysis:
 	get_stoch = _get_stoch
 	get_ulcer = _get_ulcer
 	search = _pattern_scan
-	upswing = _upswing
+	swing = _swing
 
 torn_api_error_codes = []
 torn_api_error_codes.append(("Something went really, really wrong on Torn's end.", False))

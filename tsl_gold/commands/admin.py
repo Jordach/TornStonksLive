@@ -62,7 +62,7 @@ async def sync(interaction: discord.Interaction):
 	tsl_lib.util.write_log("[ADMIN] Command tree synced by " + interaction.user.display_name + ".", tsl_lib.util.current_date())
 	print("Synced slash command tree to Discord.")
 
-@client.tree.command(name="force_suggestions", description="Run the scheduled upswing suggestions now, privately, here, or to the suggestion channels.")
+@client.tree.command(name="force_suggestions", description="Run the scheduled swing suggestions now, privately, here, or to the suggestion channels.")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
 	horizon="Which scheduled post to run.",
@@ -71,8 +71,8 @@ async def sync(interaction: discord.Interaction):
 )
 @app_commands.choices(
 	horizon=[
-		app_commands.Choice(name="Daily (+0.5% after 3 days)", value="daily"),
-		app_commands.Choice(name="Weekly (+1% after 7 days)", value="weekly"),
+		app_commands.Choice(name="Daily (0.5% move after 3 days)", value="daily"),
+		app_commands.Choice(name="Weekly (1% move after 7 days)", value="weekly"),
 	],
 	destination=[
 		app_commands.Choice(name="Preview (only you can see it)", value="preview"),
@@ -99,7 +99,7 @@ async def force_suggestions(interaction: discord.Interaction, horizon: str = "da
 	client.set_author_interaction(interaction, status)
 	try:
 		# Same function the 00:05 TCT scheduler job uses
-		result, picks_embed = await asyncio.to_thread(suggest.prepare_suggestions, horizon, record)
+		results, picks_embed = await asyncio.to_thread(suggest.prepare_suggestions, horizon, record)
 		if not live:
 			picks_embed.title = "[Test] " + picks_embed.title
 
@@ -113,12 +113,13 @@ async def force_suggestions(interaction: discord.Interaction, horizon: str = "da
 			sent = await client.post_suggestions(picks_embed)
 			where = str(sent) + "/" + str(len(config.suggestion_channels["id"])) + " suggestion channel(s)"
 
+		counts = ", ".join(str(len(r["picks"])) + " " + d for d, r in results.items())
 		status.color = discord.Color.green()
 		status.add_field(
 			name="Suggestions Sent",
-			value=str(len(result["picks"])) + " " + horizon + " pick(s) sent to " + where + ".\nTrack record: **" + ("recorded" if record else "not recorded") + "**",
+			value=horizon.capitalize() + " picks (" + counts + ") sent to " + where + ".\nTrack record: **" + ("recorded" if record else "not recorded") + "**",
 		)
-	except tsl_lib.analysis.upswing.StaleDataError as e:
+	except tsl_lib.analysis.swing.StaleDataError as e:
 		status.color = discord.Color.orange()
 		status.add_field(name="Data Not Ready", value=str(e)[:1000])
 	except Exception as e:

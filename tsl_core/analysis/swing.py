@@ -1,19 +1,20 @@
 """
-Longer-term upswing detection for automated suggestions.
+Longer-term swing detection for automated suggestions.
 
 Rather than forecasting a price path, this asks a narrower question that can be
-checked afterwards: "from today's daily close, will this stock be at least
-X% higher at the close N days from now?" Training on the close rather than an
-intraday spike keeps the gain honest - it has to stick. One classifier is trained per horizon, pooled
-across every stock's d1 history so it has enough examples to learn from.
+checked afterwards: "from today's daily close, will this stock be at least X%
+higher (upswing) or lower (downswing) at the close N days from now?" Training
+on the close rather than an intraday spike keeps the move honest - it has to
+stick. One classifier is trained per horizon and direction, pooled across
+every stock's d1 history so it has enough examples to learn from.
 
 Horizons:
-	daily  - +0.5% after 3 days
-	weekly - +1.0% after 7 days
+	daily  - 0.5% move after 3 days
+	weekly - 1.0% move after 7 days
 
 Every model also scores itself on a held-out final year it never trained on,
 so the bot can quote an honest track record (precision of the top picks vs
-the base rate of the target simply happening) instead of a bare confidence.
+the base rate of the move simply happening) instead of a bare confidence.
 """
 import threading
 import time
@@ -27,12 +28,26 @@ from xgboost import XGBClassifier
 from tsl_core.db import get_stock_df, fill_daily_gaps_from_tornsy
 
 # Horizon definitions. Torn trades 24/7, so days are calendar days.
-# min_lift: a pick must be at least this many times more likely than the base rate.
-# Tuned on the holdout year - lower floods the weekly list, higher starves the daily one.
 HORIZONS = {
-	"daily":  {"days": 3, "threshold": 0.005, "min_lift": 1.5, "label": "Daily",  "desc": "+0.5% after 3 days"},
-	"weekly": {"days": 7, "threshold": 0.010, "min_lift": 2.0, "label": "Weekly", "desc": "+1.0% after 7 days"},
+	"daily":  {"days": 3, "threshold": 0.005, "label": "Daily"},
+	"weekly": {"days": 7, "threshold": 0.010, "label": "Weekly"},
 }
+
+# min_lift: a pick must be at least this many times more likely than the base
+# rate. Tuned on the holdout year so each list averages roughly one pick a day -
+# lower floods the list with weak setups, higher leaves it empty most days.
+DIRECTIONS = {
+	"up":   {"sign": 1,  "label": "Upswing",   "icon": "📈", "min_lift": {"daily": 1.5, "weekly": 2.0}},
+	"down": {"sign": -1, "label": "Downswing", "icon": "📉", "min_lift": {"daily": 1.5, "weekly": 1.75}},
+}
+
+
+def describe(horizon, direction):
+	"""e.g. "+0.5% after 3 days" / "-1.0% after 7 days"."""
+	hz = HORIZONS[horizon]
+	sign = "+" if DIRECTIONS[direction]["sign"] > 0 else "-"
+	return sign + "{:.1f}".format(hz["threshold"] * 100) + "% after " + str(hz["days"]) + " days"
+
 
 # Need enough completed history for the slowest indicator (SMA100) plus a buffer
 MIN_HISTORY_DAYS = 130
@@ -120,15 +135,16 @@ def build_features(df):
 
 def build_labels(df, days):
 	"""
-	Forward close return over `days`, and the best high reached within that window.
-	Shifts happen on a gap-free calendar, so a missing day yields NaN instead of
-	silently comparing against a close from weeks later.
+	Forward close return over `days`, plus the best high and worst low reached
+	within that window. Shifts happen on a gap-free calendar, so a missing day
+	yields NaN instead of silently comparing against a close from weeks later.
 	"""
-	cal = df[["close", "high"]].asfreq("D")
+	cal = df[["close", "high", "low"]].asfreq("D")
 	fwd_close = cal["close"].shift(-days) / cal["close"] - 1
 	# min_periods=days: any missing day inside the window voids the label
 	fwd_high = cal["high"][::-1].rolling(days, min_periods=days).max()[::-1].shift(-1) / cal["close"] - 1
-	return fwd_close.reindex(df.index), fwd_high.reindex(df.index)
+	fwd_low = cal["low"][::-1].rolling(days, min_periods=days).min()[::-1].shift(-1) / cal["close"] - 1
+	return fwd_close.reindex(df.index), fwd_high.reindex(df.index), fwd_low.reindex(df.index)
 
 
 def build_features_segmented(df):
@@ -159,9 +175,10 @@ def build_dataset(tickers):
 		f["ticker"] = ticker.upper()
 		f["close"] = df["close"]
 		for name, hz in HORIZONS.items():
-			fwd_close, fwd_high = build_labels(df, hz["days"])
+			fwd_close, fwd_high, fwd_low = build_labels(df, hz["days"])
 			f["y_" + name] = fwd_close
 			f["yh_" + name] = fwd_high
+			f["yl_" + name] = fwd_low
 		frames.append(f)
 	if not frames:
 		raise RuntimeError("No stock history available to build the suggestion dataset.")
@@ -173,14 +190,29 @@ def _top_n_per_day(frame, n, col="p"):
 	return frame.groupby(level=0, group_keys=False).apply(lambda g: g.nlargest(n, col))
 
 
-def evaluate_holdout(data, horizon, min_lift=None):
+def _hits(frame, horizon, direction):
+	"""1 where the close N days later moved at least the threshold in `direction`."""
+	thr = HORIZONS[horizon]["threshold"]
+	y = frame["y_" + horizon]
+	return ((y >= thr) if DIRECTIONS[direction]["sign"] > 0 else (y <= -thr)).astype(int)
+
+
+def _touches(frame, horizon, direction):
+	thr = HORIZONS[horizon]["threshold"]
+	if DIRECTIONS[direction]["sign"] > 0:
+		return (frame["yh_" + horizon] >= thr).astype(int)
+	return (frame["yl_" + horizon] <= -thr).astype(int)
+
+
+def evaluate_holdout(data, horizon, direction, min_lift=None):
 	"""
 	Train on everything before the final HOLDOUT_DAYS, then score the unseen
 	final stretch the same way the bot would pick. Returns summary statistics.
 	"""
 	hz = HORIZONS[horizon]
+	sign = DIRECTIONS[direction]["sign"]
 	if min_lift is None:
-		min_lift = hz["min_lift"]
+		min_lift = DIRECTIONS[direction]["min_lift"][horizon]
 	y_col = "y_" + horizon
 	labelled = data.dropna(subset=[y_col])
 	cutoff = labelled.index.max() - pd.Timedelta(days=HOLDOUT_DAYS)
@@ -191,9 +223,9 @@ def evaluate_holdout(data, horizon, min_lift=None):
 		return None
 
 	model = XGBClassifier(**_MODEL_PARAMS)
-	model.fit(train[FEATURES], (train[y_col] >= hz["threshold"]).astype(int))
+	model.fit(train[FEATURES], _hits(train, horizon, direction))
 	test = test.assign(p=model.predict_proba(test[FEATURES])[:, 1])
-	test = test.assign(hit=(test[y_col] >= hz["threshold"]).astype(int))
+	test = test.assign(hit=_hits(test, horizon, direction))
 
 	base_rate = float(test["hit"].mean())
 	top = _top_n_per_day(test, 3)
@@ -206,8 +238,9 @@ def evaluate_holdout(data, horizon, min_lift=None):
 		"base_avg_return": float(test[y_col].mean()),
 		"top3_precision": float(top["hit"].mean()),
 		"top3_avg_return": float(top[y_col].mean()),
-		"top3_win_rate": float((top[y_col] > 0).mean()),
-		"top3_touch_rate": float((top["yh_" + horizon] >= hz["threshold"]).mean()),
+		# "Right direction": finished higher for upswings, lower for downswings
+		"top3_direction_rate": float((top[y_col] * sign > 0).mean()),
+		"top3_touch_rate": float(_touches(top, horizon, direction).mean()),
 		"lift_picks_per_day": len(picks) / n_days if n_days else 0.0,
 		"lift_precision": float(picks["hit"].mean()) if len(picks) else float("nan"),
 		"lift_avg_return": float(picks[y_col].mean()) if len(picks) else float("nan"),
@@ -215,7 +248,7 @@ def evaluate_holdout(data, horizon, min_lift=None):
 
 
 class _ModelCache:
-	"""Trains each horizon's model at most once per completed day."""
+	"""Trains each horizon/direction model at most once per completed day."""
 	def __init__(self):
 		self._lock = threading.Lock()
 		self._day = None
@@ -238,15 +271,16 @@ class _ModelCache:
 				self._stats = {}
 				self._day = today
 
-			for name, hz in HORIZONS.items():
-				if name in self._models:
-					continue
-				y_col = "y_" + name
-				labelled = self._data.dropna(subset=[y_col])
-				model = XGBClassifier(**_MODEL_PARAMS)
-				model.fit(labelled[FEATURES], (labelled[y_col] >= hz["threshold"]).astype(int))
-				self._models[name] = model
-				self._stats[name] = evaluate_holdout(self._data, name)
+			for horizon in HORIZONS:
+				labelled = self._data.dropna(subset=["y_" + horizon])
+				for direction in DIRECTIONS:
+					key = (horizon, direction)
+					if key in self._models:
+						continue
+					model = XGBClassifier(**_MODEL_PARAMS)
+					model.fit(labelled[FEATURES], _hits(labelled, horizon, direction))
+					self._models[key] = model
+					self._stats[key] = evaluate_holdout(self._data, horizon, direction)
 			return self._data, self._models, self._stats
 
 	def invalidate(self):
@@ -257,41 +291,60 @@ class _ModelCache:
 _cache = _ModelCache()
 
 
-def _signal_notes(row):
-	"""Short human-readable context for why a stock looks set up."""
+def _fmt(val):
+	return "{:.0f}".format(val)
+
+
+def _signal_notes(row, direction):
+	"""Short human-readable context for why a stock looks set up to move."""
 	notes = []
-	if row["rsi14"] < 35:
-		notes.append("RSI oversold (" + "{:.0f}".format(row["rsi14"]) + ")")
-	elif row["rsi14"] > 65:
-		notes.append("RSI strong (" + "{:.0f}".format(row["rsi14"]) + ")")
-	if row["bb_pos"] < 0.15:
-		notes.append("near lower Bollinger band")
-	if row["dd20"] < -0.03:
-		notes.append("{:.1f}".format(row["dd20"] * 100) + "% off 20d high")
-	if row["macd_hist"] > 0 and row["ret3"] < 0:
-		notes.append("MACD positive on a dip")
-	if row["sma50"] > 0 and row["sma20"] < 0:
-		notes.append("pullback within uptrend")
-	if row["w_rsi"] < 40:
-		notes.append("weekly RSI low (" + "{:.0f}".format(row["w_rsi"]) + ")")
+	if direction == "up":
+		if row["rsi14"] < 35:
+			notes.append("RSI oversold (" + _fmt(row["rsi14"]) + ")")
+		if row["bb_pos"] < 0.15:
+			notes.append("near lower Bollinger band")
+		if row["dd20"] < -0.03:
+			notes.append("{:.1f}".format(row["dd20"] * 100) + "% below 20d high")
+		if row["macd_hist"] > 0 and row["ret3"] < 0:
+			notes.append("MACD positive on a dip")
+		if row["sma50"] > 0 and row["sma20"] < 0:
+			notes.append("pullback within uptrend")
+		if row["w_rsi"] < 40:
+			notes.append("weekly RSI low (" + _fmt(row["w_rsi"]) + ")")
+	else:
+		if row["rsi14"] > 65:
+			notes.append("RSI overbought (" + _fmt(row["rsi14"]) + ")")
+		if row["bb_pos"] > 0.85:
+			notes.append("near upper Bollinger band")
+		if row["du20"] > 0.03:
+			notes.append("+" + "{:.1f}".format(row["du20"] * 100) + "% above 20d low")
+		if row["macd_hist"] < 0 and row["ret3"] > 0:
+			notes.append("MACD negative on a bounce")
+		if row["sma50"] < 0 and row["sma20"] > 0:
+			notes.append("rally within downtrend")
+		if row["w_rsi"] > 60:
+			notes.append("weekly RSI high (" + _fmt(row["w_rsi"]) + ")")
 	if not notes:
-		notes.append("mixed indicators, model composite")
+		notes.append("no single standout signal; model composite")
 	return ", ".join(notes[:3])
 
 
-def scan(horizon, tickers, top_n=3, min_lift=None):
+def scan(horizon, direction, tickers, top_n=3, min_lift=None):
 	"""
-	Rank every stock by its chance of reaching the horizon's target from the
-	latest completed daily close.
+	Rank every stock by its chance of making the horizon's move in `direction`
+	from the latest completed daily close.
 
 	Returns a dict with the picks (passing min_lift), the full ranking, the
 	base rate for context and the model's holdout statistics.
 	"""
 	if horizon not in HORIZONS:
 		raise ValueError("Unknown horizon: " + repr(horizon))
+	if direction not in DIRECTIONS:
+		raise ValueError("Unknown direction: " + repr(direction))
 	hz = HORIZONS[horizon]
+	sign = DIRECTIONS[direction]["sign"]
 	if min_lift is None:
-		min_lift = hz["min_lift"]
+		min_lift = DIRECTIONS[direction]["min_lift"][horizon]
 	data, models, stats = _cache.get(tickers)
 
 	latest_day = data.index.max()
@@ -301,44 +354,53 @@ def scan(horizon, tickers, top_n=3, min_lift=None):
 		_cache.invalidate()
 		raise StaleDataError("Latest usable daily candle is " + latest_day.strftime("%d/%m/%y") + "; daily history needs repairing before suggestions can run.")
 	latest = data[data.index == latest_day].dropna(subset=FEATURES).copy()
-	latest["p"] = models[horizon].predict_proba(latest[FEATURES])[:, 1]
+	latest["p"] = models[(horizon, direction)].predict_proba(latest[FEATURES])[:, 1]
 	latest = latest.sort_values("p", ascending=False)
 
-	hz_stats = stats.get(horizon)
-	labelled = data.dropna(subset=["y_" + horizon])
-	base_rate = hz_stats["base_rate"] if hz_stats else float((labelled["y_" + horizon] >= hz["threshold"]).mean())
+	dir_stats = stats.get((horizon, direction))
+	if dir_stats:
+		base_rate = dir_stats["base_rate"]
+	else:
+		base_rate = float(_hits(data.dropna(subset=["y_" + horizon]), horizon, direction).mean())
 
 	ranking = []
-	for day, row in latest.iterrows():
+	for _, row in latest.iterrows():
 		ranking.append({
 			"ticker": row["ticker"],
 			"probability": float(row["p"]),
 			"lift": float(row["p"]) / base_rate if base_rate > 0 else 0.0,
 			"close": float(row["close"]),
-			"target": float(row["close"]) * (1 + hz["threshold"]),
+			"target": float(row["close"]) * (1 + sign * hz["threshold"]),
 			"atr_pct": float(row["atr"]) * 100,
 			"rsi": float(row["rsi14"]),
-			"notes": _signal_notes(row),
+			"notes": _signal_notes(row, direction),
 		})
 
 	picks = [r for r in ranking if r["lift"] >= min_lift][:top_n]
 	return {
 		"horizon": horizon,
+		"direction": direction,
 		"as_of": int(latest_day.timestamp()),
 		"expires": int(latest_day.timestamp()) + 86400 * (hz["days"] + 1),
 		"base_rate": base_rate,
 		"min_lift": min_lift,
 		"picks": picks,
 		"ranking": ranking,
-		"stats": hz_stats,
+		"stats": dir_stats,
 	}
 
 
-def outcome(ticker, as_of, horizon, entry, target):
+def scan_both(horizon, tickers, top_n=3):
+	"""{"up": scan(...), "down": scan(...)} - training is shared, so the second scan is instant."""
+	return {direction: scan(horizon, direction, tickers, top_n=top_n) for direction in DIRECTIONS}
+
+
+def outcome(ticker, as_of, horizon, direction, entry, target):
 	"""
 	Grade a past suggestion once its window has fully closed.
 	Returns None while still open, else (closed_at_target, touched_target,
-	return_at_expiry, best_high_return).
+	return_at_expiry, best_return) where best_return is the most favourable
+	excursion in the suggested direction (highest high, or lowest low).
 	"""
 	hz = HORIZONS[horizon]
 	start = as_of + 86400
@@ -349,6 +411,9 @@ def outcome(ticker, as_of, horizon, entry, target):
 	window = df[(df["date"] >= start) & (df["date"] <= end)]
 	if len(window) == 0:
 		return None
-	best = float(window["high"].max())
 	final = float(window["close"].iloc[-1])
-	return (final >= target, best >= target, final / entry - 1, best / entry - 1)
+	if DIRECTIONS[direction]["sign"] > 0:
+		best = float(window["high"].max())
+		return (final >= target, best >= target, final / entry - 1, best / entry - 1)
+	best = float(window["low"].min())
+	return (final <= target, best <= target, final / entry - 1, best / entry - 1)
