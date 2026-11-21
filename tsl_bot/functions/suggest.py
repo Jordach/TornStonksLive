@@ -116,11 +116,36 @@ def _chance(pick, result):
 	return "**" + _pct(pick["probability"], False) + "** chance (a random stock: " + _pct(result["base_rate"], False) + ")"
 
 
-def _watchlist_note(pick):
-	"""Why a near miss isn't a pick yet; empty for real picks."""
-	if not pick.get("shortfall"):
+def _pct_pair(need, have):
+	"""
+	Format a needed vs actual chance with ordinary rounding (matching the
+	entry's chance line), adding decimals up to two until they differ. If they
+	still match, the stock is a hair under the bar, so say so.
+	"""
+	for places in range(3):
+		fmt = "{:." + str(places) + "f}%"
+		n, h = fmt.format(need * 100), fmt.format(have * 100)
+		if n != h:
+			return n, h
+	return "{:.0f}%".format(need * 100), "just under"
+
+
+def _watchlist_note(pick, result):
+	"""
+	Why a near miss isn't a pick yet, as "needs X (has Y)" in the same units
+	the entry shows (chart signals, % chance). Empty for real picks.
+	"""
+	if pick.get("qualifies", True):
 		return ""
-	return "\n👀 *Watchlist, not yet a pick: " + "; ".join(pick["shortfall"]) + ".*"
+	needs = []
+	if result["direction"] == "up" and pick["bull_score"] < result["min_signals"]:
+		needs.append(str(result["min_signals"]) + " chart signals (has " + str(pick["bull_score"]) + ")")
+	if pick["lift"] < result["min_lift"]:
+		need, have = _pct_pair(result["base_rate"] * result["min_lift"], pick["probability"])
+		needs.append("a chance of at least " + need + " (has " + have + ")")
+	if not needs:
+		return ""
+	return "\n👀 *Not a pick yet: needs " + " and ".join(needs) + ".*"
 
 
 def _up_value(pick, result):
@@ -131,7 +156,7 @@ def _up_value(pick, result):
 		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + " since the close)"
 		if live >= pick["target"]:
 			value += ", target already reached"
-	value += _watchlist_note(pick)
+	value += _watchlist_note(pick, result)
 	n = pick["bull_score"]
 	if n:
 		value += "\n**" + str(n) + " of " + str(len(swing.BULL_SIGNALS)) + " chart signals:** " + ", ".join(pick["signals"])
@@ -153,7 +178,7 @@ def _dip_value(pick, result):
 			value += ", ✅ already at the buy price"
 		else:
 			value += ", " + "{:.2f}".format((live / pick["buy_zone"] - 1) * 100) + "% above the buy price"
-	value += _watchlist_note(pick)
+	value += _watchlist_note(pick, result)
 	if pick["signals"]:
 		value += "\nSigns of a short-term drop: " + ", ".join(pick["signals"])
 	value += "\nWhy: " + ", ".join(pick["context"])
