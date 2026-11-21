@@ -208,20 +208,24 @@ def build_picks_embed(results, ranking=False):
 	else:
 		title = "📊 " + hz["label"] + " Stock Suggestions"
 
-	desc = ""
-	if not ranking:
-		# Answer first: which stocks, from which close
-		desc += "**Stocks to watch from the " + _day(first["as_of"]) + " close:**\n" + "\n".join(_verdict(d, results[d]) for d in dirs) + "\n\n"
-	desc += "*What these mean:*\n" if not ranking else "Based on closing prices on **" + _day(first["as_of"]) + "**.\n"
+	# What each section means, tied to the close the analysis was run on
+	meaning = ""
 	if "up" in dirs:
 		r = results["up"]
-		desc += "📈 **Upswing**: expected to rise at least " + pct + " by the close on " + _day(r["target_day"])
+		meaning += "📈 **Upswing**: expected to rise at least " + pct + " by the close on " + _day(r["target_day"])
 		if r["min_signals"]:
-			desc += ", confirmed by " + str(r["min_signals"]) + "+ chart signals"
-		desc += ".\n"
+			meaning += ", confirmed by " + str(r["min_signals"]) + "+ chart signals"
+		meaning += ".\n"
 	if "dip" in dirs:
 		r = results["dip"]
-		desc += "📉 **Buy the Dip**: expected to fall " + pct + " by " + _day(r["target_day"]) + ", then recover above the " + _day(first["as_of"]) + " close by " + _day(r["recover_day"]) + ".\n"
+		meaning += "📉 **Buy the Dip**: expected to fall " + pct + " by " + _day(r["target_day"]) + ", then recover above the " + _day(first["as_of"]) + " close by " + _day(r["recover_day"]) + ".\n"
+	meaning = meaning.strip()
+
+	if ranking:
+		desc = "Based on closing prices on **" + _day(first["as_of"]) + "**.\n" + meaning
+	else:
+		# Actionable picks first; the closing-day context goes to the bottom
+		desc = "**Today's picks:**\n" + "\n".join(_verdict(d, results[d]) for d in dirs)
 	embed = discord.Embed(title=title, description=desc.strip())
 	embed.color = discord.Color.blue()
 	embed.set_thumbnail(url=config.stonks_png)
@@ -248,6 +252,7 @@ def build_picks_embed(results, ranking=False):
 				for item in result["watchlist"]:
 					value = "*Not a recommendation yet: " + "; ".join(item["shortfall"]) + ".*\n" + render(item, result)
 					embed.add_field(name="👀 " + info["label"] + " watchlist: " + _stock_label(item["ticker"]), value=value, inline=False)
+		embed.add_field(name="Based on the " + _day(first["as_of"]) + " close:", value=meaning, inline=False)
 
 	stat_lines = []
 	period = None
