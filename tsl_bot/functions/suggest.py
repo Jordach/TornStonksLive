@@ -145,7 +145,8 @@ def _watchlist_note(pick, result):
 		needs.append("a chance of at least " + need + " (has " + have + ")")
 	if not needs:
 		return ""
-	return "\n👀 *Not a pick yet: needs " + " and ".join(needs) + ".*"
+	# No emoji: 👀 already marks watchlist entries in titles and the summary
+	return "\n*Not a pick yet: needs " + " and ".join(needs) + ".*"
 
 
 def _up_value(pick, result):
