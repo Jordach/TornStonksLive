@@ -43,7 +43,7 @@ class Bot(discord.Client):
 	
 	async def on_ready(self):
 		await self.wait_until_ready()
-		# await self.tree.sync()
+		# await self.tree.sync() The /sync slash command now makes this easier at runtime
 
 		await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Torn City Stocks"))
 		if config.enable_suggestions:

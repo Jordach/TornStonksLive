@@ -74,6 +74,12 @@ def _init_db():
 			encrypted_key  TEXT NOT NULL
 		)
 	""")
+	cur.execute("""
+		CREATE TABLE IF NOT EXISTS user_keys (
+			discord_id     TEXT NOT NULL PRIMARY KEY,
+			encrypted_key  TEXT NOT NULL
+		)
+	""")
 	conn.commit()
 	conn.close()
 
@@ -424,3 +430,69 @@ def read_torn_api_keys():
 		"[MIGRATION] Migrated " + str(len(verification_keys)) + " API key(s) + event key from .conf -> SQLite (encrypted).",
 		tsl_lib.util.current_date(),
 	)
+
+def save_user_key(discord_id: str, api_key: str):
+	"""Store (or replace) a user's personal Torn API key, encrypted."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	cur.execute(
+		"INSERT OR REPLACE INTO user_keys (discord_id, encrypted_key) VALUES (?, ?)",
+		(discord_id, _encrypt(api_key)),
+	)
+	conn.commit()
+	conn.close()
+	tsl_lib.util.write_log(
+		"[INFO] Saved personal API key for Discord user " + discord_id,
+		tsl_lib.util.current_date(),
+	)
+ 
+def get_user_key(discord_id: str):
+	"""Retrieve a user's decrypted personal API key, or None if not set."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	cur.execute(
+		"SELECT encrypted_key FROM user_keys WHERE discord_id = ?",
+		(discord_id,),
+	)
+	row = cur.fetchone()
+	conn.close()
+	if row is None:
+		return None
+	try:
+		return _decrypt(row[0])
+	except Exception:
+		tsl_lib.util.write_log(
+			"[WARNING] Failed to decrypt personal API key for " + discord_id,
+			tsl_lib.util.current_date(),
+		)
+		return None
+ 
+def has_user_key(discord_id: str) -> bool:
+	"""Check whether a user has a personal API key stored."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	cur.execute(
+		"SELECT 1 FROM user_keys WHERE discord_id = ? LIMIT 1",
+		(discord_id,),
+	)
+	exists = cur.fetchone() is not None
+	conn.close()
+	return exists
+ 
+def remove_user_key(discord_id: str) -> bool:
+	"""Remove a user's personal API key. Returns True if a key was deleted."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	cur.execute(
+		"DELETE FROM user_keys WHERE discord_id = ?",
+		(discord_id,),
+	)
+	deleted = cur.rowcount > 0
+	conn.commit()
+	conn.close()
+	if deleted:
+		tsl_lib.util.write_log(
+			"[INFO] Removed personal API key for Discord user " + discord_id,
+			tsl_lib.util.current_date(),
+		)
+	return deleted

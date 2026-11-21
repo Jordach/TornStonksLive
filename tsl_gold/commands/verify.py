@@ -6,7 +6,7 @@ import json
 import tsl_config.config as config
 client = config.client
 
-@client.tree.command(name="verify", description="Verify your Torn ID for TornStonks Gold usage.")
+@client.tree.command(name="verify", description="Checks if you've bound your Discord account with your Torn account.")
 async def verify(interaction: discord.Interaction):
 	dm_state = True
 	if interaction.channel.type == discord.ChannelType.private:

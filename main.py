@@ -27,7 +27,7 @@ current_day = tsl_lib.util.current_date()
 # Back fill the DBs with data
 def backfill_db():
 	# n_times = 1200
-	n_times = 7
+	n_times = 12000
 	for ticker in tsl_lib.stock_lut:
 		tsl_lib.util.write_log("[INFO]: Downloading " + ticker + ".", current_day)
 		tsl_lib.db.import_from_tornsy(ticker, tsl_lib.intervals, limit=n_times)
