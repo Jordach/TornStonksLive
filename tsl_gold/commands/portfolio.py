@@ -94,7 +94,7 @@ async def portfolio(interaction: discord.Interaction, ticker: str = None, limit:
 		for data in config.json_data["data"]:
 			price_lookup[data["stock"]] = data
 
-	has_stocks = False
+	fields = []  # (name, value) pairs, packed into embeds at the end
 
 	for stock_id in torn_json.get("stocks", {}):
 		stock_idx = int(stock_id) - 1
@@ -113,6 +113,8 @@ async def portfolio(interaction: discord.Interaction, ticker: str = None, limit:
 		current_price = float(market_data["price"])
 		transactions = torn_json["stocks"][stock_id].get("transactions", {})
 
+		# Each holding becomes one or more fields; a field value is capped at 1024 chars
+		field_name = market_data["name"] + " ($" + str(market_data["price"]) + ")"
 		emb_value = ""
 		index = 0
 		for txn_id in transactions:
@@ -124,46 +126,53 @@ async def portfolio(interaction: discord.Interaction, ticker: str = None, limit:
 			shares = int(txn["shares"])
 			time_bought = int(txn["time_bought"])
 
-			price_perc = ((current_price - bought_price) / bought_price) * 100
+			price_perc = ((current_price - bought_price) / bought_price) * 100 if bought_price else 0.0
 			timestamp = datetime.utcfromtimestamp(time_bought).strftime("%H:%M:%S - %d/%m/%y TCT")
 
-			emb_value += "**" + timestamp + ":**\n"
-			emb_value += "Purchase Price: $" + str(bought_price) + ", (" + "{:,.2f}".format(price_perc) + "%)\n"
-			emb_value += "Shares: " + "{:,}".format(shares) + "\n"
+			block = "**" + timestamp + ":**\n"
+			block += "Purchase Price: $" + str(bought_price) + ", (" + "{:,.2f}".format(price_perc) + "%)\n"
+			block += "Shares: " + "{:,}".format(shares) + "\n"
 
 			orig_value = bought_price * shares
 			curr_value = current_price * shares
 			change = curr_value - orig_value
 
 			if change < 0:
-				emb_value += "Change: -$" + "{:,.2f}".format(abs(change)) + "\n\n"
+				block += "Change: -$" + "{:,.2f}".format(abs(change)) + "\n\n"
 			elif change > 0:
-				emb_value += "Change: +$" + "{:,.2f}".format(abs(change)) + "\n\n"
+				block += "Change: +$" + "{:,.2f}".format(abs(change)) + "\n\n"
 			else:
-				emb_value += "Change: $" + "{:,.2f}".format(abs(change)) + "\n\n"
+				block += "Change: $" + "{:,.2f}".format(abs(change)) + "\n\n"
 
+			if emb_value and len(emb_value) + len(block) > 1024:
+				fields.append((field_name, emb_value))
+				field_name = market_data["name"] + " (cont.)"
+				emb_value = ""
+			emb_value += block
 			index += 1
 
 		if emb_value != "":
-			has_stocks = True
-			embed.add_field(
-				name=market_data["name"] + " ($" + str(market_data["price"]) + ")",
-				value=emb_value,
-				inline=False,
-			)
+			fields.append((field_name, emb_value))
 
-	if not has_stocks:
+	if len(fields) == 0:
 		if ticker is not None:
-			embed.add_field(
-				name="No Holdings",
-				value="You don't appear to own any **" + ticker + "** shares.",
-				inline=False,
-			)
+			fields.append(("No Holdings", "You don't appear to own any **" + ticker + "** shares."))
 		else:
-			embed.add_field(
-				name="No Holdings",
-				value="You don't appear to own any stocks.",
-				inline=False,
-			)
+			fields.append(("No Holdings", "You don't appear to own any stocks."))
 
-	await interaction.followup.send(embed=embed, ephemeral=True)
+	# Discord caps an embed at 25 fields and 6000 characters in total, so
+	# spill over into extra embeds rather than failing the whole reply.
+	embeds = [embed]
+	char_count = len(embed.title)
+	for name, value in fields:
+		if len(embeds[-1].fields) >= 25 or char_count + len(name) + len(value) > 5500:
+			embed = discord.Embed(title="Torn Stock Portfolio (cont.):", url="https://www.torn.com/page.php?sid=stocks")
+			embed.color = discord.Color.blue()
+			client.set_author_interaction(interaction, embed)
+			embeds.append(embed)
+			char_count = len(embed.title)
+		embeds[-1].add_field(name=name, value=value, inline=False)
+		char_count += len(name) + len(value)
+
+	for emb in embeds:
+		await interaction.followup.send(embed=emb, ephemeral=True)
