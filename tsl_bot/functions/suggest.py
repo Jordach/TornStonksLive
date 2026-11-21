@@ -71,27 +71,6 @@ def _stock_name(ticker):
 	return name if name.upper() != ticker.upper() else ticker.upper()
 
 
-def _stock_link(ticker):
-	return "https://www.torn.com/page.php?sid=stocks&stockID=" + tsl_lib.util.lut_stock_id(ticker) + "&tab=owned"
-
-
-def _stock_heading(ticker):
-	"""Bold, linked full name plus ticker, e.g. **[Torn City Investments](...)** · `TCI`."""
-	name = _stock_name(ticker)
-	if name == ticker.upper():
-		return "**[" + ticker.upper() + "](" + _stock_link(ticker) + ")**"
-	return "**[" + name + "](" + _stock_link(ticker) + ")** · `" + ticker.upper() + "`"
-
-
-def _heading_block(ticker):
-	"""
-	The stock's name line set apart by a blank line above and below, ending in
-	a colon. Discord trims leading blank lines from a field, so a zero-width
-	space keeps the gap when this opens the field.
-	"""
-	return "​\n" + _stock_heading(ticker) + ":\n\n"
-
-
 def _stock_label(ticker):
 	"""Plain "Full Name (TCK)" for places links don't render, like field titles."""
 	name = _stock_name(ticker)
@@ -146,8 +125,8 @@ def _watchlist_note(pick):
 
 def _up_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
-	value = _heading_block(pick["ticker"])
-	value += "Buy around **" + _money(pick["close"]) + "**, target **" + _money(pick["target"]) + "** by " + _deadline(result["target_day"])
+	# The field title already names the stock, so the entry starts at the prices
+	value = "Buy around **" + _money(pick["close"]) + "**, target **" + _money(pick["target"]) + "** by " + _deadline(result["target_day"])
 	if live is not None:
 		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + " since the close)"
 		if live >= pick["target"]:
@@ -166,8 +145,7 @@ def _up_value(pick, result):
 
 def _dip_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
-	value = _heading_block(pick["ticker"])
-	value += "Set a buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + "), keep it until " + _deadline(result["target_day"])
+	value = "Set a buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + "), keep it until " + _deadline(result["target_day"])
 	value += "\nIf it fills, expect **" + _money(pick["target"]) + "** or better by " + _deadline(result["recover_day"])
 	if live is not None:
 		value += "\nNow " + _money(live)
