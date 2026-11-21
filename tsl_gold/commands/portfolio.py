@@ -45,14 +45,15 @@ async def portfolio(interaction: discord.Interaction, ticker: str = None, limit:
 		return
 
 	# Defer — the Torn API call may take a moment
-	await interaction.response.defer()
+	await interaction.response.defer(ephemeral=True)
 
 	# Fetch portfolio from Torn
 	torn_req = tsl_func.util.get_torn_stock_data(api_key)
 
 	if torn_req.status_code != 200:
 		await interaction.followup.send(
-			"Torn API failed to respond in time, or has an error. Blame Ched, then try again shortly."
+			"Torn API failed to respond in time, or has an error. Blame Ched, then try again shortly.",
+			ephemeral=True,
 		)
 		return
 
@@ -64,7 +65,7 @@ async def portfolio(interaction: discord.Interaction, ticker: str = None, limit:
 			msg = tsl_func.torn_api_error_codes[error_code][0]
 		else:
 			msg = torn_json["error"]["error"]
-		await interaction.followup.send(":no_entry_sign: Torn API error: " + msg)
+		await interaction.followup.send(":no_entry_sign: Torn API error: " + msg, ephemeral=True)
 		return
 
 	# Build the embed
@@ -160,4 +161,4 @@ async def portfolio(interaction: discord.Interaction, ticker: str = None, limit:
 				inline=False,
 			)
 
-	await interaction.followup.send(embed=embed)
+	await interaction.followup.send(embed=embed, ephemeral=True)
