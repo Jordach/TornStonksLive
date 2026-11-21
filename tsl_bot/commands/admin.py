@@ -15,11 +15,6 @@ async def cmd_stop(self, message, prefix):
 		embed.add_field(name="Details:", value="You are not authorised to stop the bot.")
 		await message.channel.send(embed=embed, mention_author=False, reference=message)
 
-def force_suggestions(self, message, prefix):
-	if int(message.author.id) in config.bot_admins:
-		print("Suggestions forced.")
-		self.process_suggestions()
-
 def force_volatility(self, message, prefix):
 	if int(message.author.id) in config.bot_admins:
 		print("Volatility forced.")

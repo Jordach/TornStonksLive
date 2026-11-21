@@ -8,11 +8,17 @@ from tsl_core.analysis.search import pattern_scan as _pattern_scan
 from tsl_core.analysis.stochastic import get_stoch as _get_stoch
 from tsl_core.analysis.stochastic import get_stoch_osc as _get_stoch_osc
 from tsl_core.analysis.ulcer import get_ulcer as _get_ulcer
+import tsl_core.analysis.upswing as _upswing
 from tsl_core.datestr import update_date as _update_date
 from tsl_core.db import get_stock_from_db as _get_stock_from_db
 from tsl_core.db import get_tornsy_candles as _get_tornsy_candles
 from tsl_core.db import import_from_tornsy as _import_from_tornsy
 from tsl_core.db import update_from_tornsy as _update_from_tornsy
+from tsl_core.db import get_stock_df as _get_stock_df
+from tsl_core.db import suggestion_record as _suggestion_record
+from tsl_core.db import suggestion_get_open as _suggestion_get_open
+from tsl_core.db import suggestion_set_outcome as _suggestion_set_outcome
+from tsl_core.db import suggestion_get_record as _suggestion_get_record
 from tsl_core.log import write_log as _write_log
 
 # This file is intended to where you push functions from the library parts
@@ -129,6 +135,11 @@ class util:
 # Database functions
 class db:
 	get_stock = _get_stock_from_db
+	get_stock_df = _get_stock_df
+	suggestion_record = _suggestion_record
+	suggestion_get_open = _suggestion_get_open
+	suggestion_set_outcome = _suggestion_set_outcome
+	suggestion_get_record = _suggestion_get_record
 	get_tornsy_data = _get_tornsy_candles
 	import_from_tornsy = _import_from_tornsy
 	update_from_tornsy = _update_from_tornsy
@@ -140,6 +151,7 @@ class analysis:
 	get_stoch = _get_stoch
 	get_ulcer = _get_ulcer
 	search = _pattern_scan
+	upswing = _upswing
 
 torn_api_error_codes = []
 torn_api_error_codes.append(("Something went really, really wrong on Torn's end.", False))

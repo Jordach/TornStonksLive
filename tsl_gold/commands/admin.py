@@ -61,3 +61,35 @@ async def sync(interaction: discord.Interaction):
 
 	tsl_lib.util.write_log("[ADMIN] Command tree synced by " + interaction.user.display_name + ".", tsl_lib.util.current_date())
 	print("Synced slash command tree to Discord.")
+
+@client.tree.command(name="force_suggestions", description="Immediately post upswing suggestions to the suggestion channels.")
+@app_commands.default_permissions(administrator=True)
+@app_commands.choices(horizon=[
+	app_commands.Choice(name="Daily (+0.5% after 3 days)", value="daily"),
+	app_commands.Choice(name="Weekly (+1% after 7 days)", value="weekly"),
+])
+async def force_suggestions(interaction: discord.Interaction, horizon: str = "daily"):
+	await interaction.response.defer(ephemeral=True)
+
+	if not _is_admin(interaction):
+		await _deny(interaction)
+		return
+
+	import asyncio
+	import tsl_bot.functions.suggest as suggest
+
+	embed = discord.Embed(title="")
+	client.set_author_interaction(interaction, embed)
+	try:
+		await asyncio.to_thread(suggest.grade_open_suggestions)
+		result = await asyncio.to_thread(suggest.run_scan, horizon)
+		await asyncio.to_thread(suggest.record_picks, result)
+		await client.post_suggestions(suggest.build_picks_embed(result))
+		embed.color = discord.Color.green()
+		embed.add_field(name="Suggestions Posted", value=str(len(result["picks"])) + " " + horizon + " pick(s) sent to " + str(len(config.suggestion_channels["id"])) + " channel(s).")
+	except Exception as e:
+		embed.color = discord.Color.red()
+		embed.add_field(name="Failed", value=repr(e)[:1000])
+	await interaction.followup.send(embed=embed, ephemeral=True)
+
+	tsl_lib.util.write_log("[ADMIN] " + horizon + " suggestions forced by " + interaction.user.display_name + ".", tsl_lib.util.current_date())

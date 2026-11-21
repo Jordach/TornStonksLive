@@ -88,24 +88,21 @@ def check_weekly_volatility():
 	if config.bot_started:
 		run_on_bot_loop(tsl_bot.Bot.process_weekly_volatility, "volatility checks")
 
-def suggests():
-	# Predictions are CPU heavy, so these stay on the scheduler thread;
+def suggests(horizon):
+	# Training/scanning is CPU heavy, so it stays on the scheduler thread;
 	# make_suggestions posts its results back to the bot loop thread-safely.
 	if config.bot_started:
 		try:
-			tsl_bot.Bot.make_suggestions(config.client)
+			tsl_bot.Bot.make_suggestions(config.client, horizon)
 		except Exception:
-			tsl_lib.util.write_log("[WARNING] Potential problem with suggestion predictions:\n" + traceback.format_exc(), current_day)
+			tsl_lib.util.write_log("[WARNING] Potential problem with " + horizon + " suggestions:\n" + traceback.format_exc(), current_day)
 
 # Initiate background thread and jobs
-enable_suggestions = False
-if enable_suggestions:
-	schedule.every().day.at("01:01:20").do(suggests)
-	schedule.every().day.at("05:01:20").do(suggests)
-	schedule.every().day.at("09:01:20").do(suggests)
-	schedule.every().day.at("13:01:20").do(suggests)
-	schedule.every().day.at("17:01:20").do(suggests)
-	schedule.every().day.at("21:01:20").do(suggests)
+# Suggestions run just after the daily candle closes at 00:00 TCT (UTC), so they
+# always score a completed day. Weekly picks follow on Mondays.
+if config.enable_suggestions:
+	schedule.every().day.at("00:05", "UTC").do(suggests, "daily")
+	schedule.every().monday.at("00:10", "UTC").do(suggests, "weekly")
 
 enable_volatility = False
 if enable_volatility:

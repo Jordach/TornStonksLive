@@ -77,6 +77,58 @@ def get_stock_from_db(ticker, interval, limit=-1):
 			dt["sma"].append(float(item[4]))
 	return dt
 
+def get_stock_df(ticker, interval):
+	"""Full candle history as a DataFrame with integer epoch `date` and lowercase OHLC columns."""
+	import pandas as pd
+	name = ticker.lower()
+	interval = interval.lower()
+	if not _TICKER_PATTERN.match(name):
+		raise ValueError("Invalid ticker: " + repr(ticker))
+	if interval not in _DB_INTERVALS:
+		raise ValueError("Invalid interval: " + repr(interval))
+
+	path = os.path.join(os.getcwd(), "db", "db_" + name + ".db")
+	con = sqlite3.connect("file:" + pathname2url(path) + "?mode=ro", uri=True)
+	try:
+		df = pd.read_sql_query("SELECT date, open, high, low, close FROM " + interval + " ORDER BY date ASC", con)
+	finally:
+		con.close()
+	return df.astype({"date": "int64", "open": "float64", "high": "float64", "low": "float64", "close": "float64"})
+
+def fill_daily_gaps_from_tornsy(ticker, limit=2000):
+	"""
+	Fill missing completed d1 candles from Tornsy's own daily history. The m1-based
+	backfill only reaches back a day or so, so any downtime leaves holes in d1 that
+	break longer-term indicators. Existing rows are never overwritten.
+	Returns the number of days added, or -1 if Tornsy could not be reached.
+	"""
+	name = ticker.lower()
+	if not _TICKER_PATTERN.match(name):
+		raise ValueError("Invalid ticker: " + repr(ticker))
+	ohlc = get_tornsy_candles(name, "d1", str(int(limit)))
+	if not ohlc or "data" not in ohlc:
+		return -1
+
+	now = int(time.time())
+	today = now - (now % 86400)
+	rows = []
+	for item in ohlc["data"]:
+		ts = int(item[0])
+		# Skip the day still in progress; the live feed owns that candle
+		if ts >= today:
+			continue
+		rows.append((ts, float(item[1]), float(item[2]), float(item[3]), float(item[4])))
+
+	con = sqlite3.connect(os.path.join(os.getcwd(), "db", "db_" + name + ".db"))
+	try:
+		con.execute("CREATE TABLE IF NOT EXISTS d1 (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
+		before = con.total_changes
+		con.executemany("INSERT OR IGNORE INTO d1 (date, open, high, low, close) VALUES (?, ?, ?, ?, ?)", rows)
+		con.commit()
+		return con.total_changes - before
+	finally:
+		con.close()
+
 def import_from_tornsy(ticker, intervals, limit=-1):
 	pwd = os.getcwd()
 	name = ticker.lower()
@@ -284,3 +336,54 @@ def gold_user_force_set_days(user_id, n_days):
 	con.execute("UPDATE users SET daysleft = ? WHERE discordid = ?", (int(n_days), int(user_id)))
 	con.commit()
 	con.close()
+
+## Suggestion tracking
+
+def _suggestion_db():
+	con = sqlite3.connect(os.path.join(os.getcwd(), "db", "db_suggestions.db"))
+	con.execute(
+		"CREATE TABLE IF NOT EXISTS suggestions ("
+		"id integer PRIMARY KEY AUTOINCREMENT, "
+		"horizon text NOT NULL, ticker text NOT NULL, as_of integer NOT NULL, "
+		"entry real NOT NULL, target real NOT NULL, probability real NOT NULL, "
+		"closed_hit integer, touched_hit integer, final_return real, best_return real, "
+		"UNIQUE(horizon, ticker, as_of))"
+	)
+	return con
+
+def suggestion_record(horizon, ticker, as_of, entry, target, probability):
+	"""Store a posted suggestion. Re-posting the same pick for the same day is ignored."""
+	con = _suggestion_db()
+	con.execute(
+		"INSERT OR IGNORE INTO suggestions (horizon, ticker, as_of, entry, target, probability) VALUES (?, ?, ?, ?, ?, ?)",
+		(str(horizon), str(ticker).upper(), int(as_of), float(entry), float(target), float(probability)),
+	)
+	con.commit()
+	con.close()
+
+def suggestion_get_open():
+	"""Suggestions that have not been graded yet."""
+	con = _suggestion_db()
+	rows = con.execute("SELECT id, horizon, ticker, as_of, entry, target FROM suggestions WHERE closed_hit IS NULL").fetchall()
+	con.close()
+	return rows
+
+def suggestion_set_outcome(row_id, closed_hit, touched_hit, final_return, best_return):
+	con = _suggestion_db()
+	con.execute(
+		"UPDATE suggestions SET closed_hit = ?, touched_hit = ?, final_return = ?, best_return = ? WHERE id = ?",
+		(int(closed_hit), int(touched_hit), float(final_return), float(best_return), int(row_id)),
+	)
+	con.commit()
+	con.close()
+
+def suggestion_get_record(horizon, since=0):
+	"""Graded and open suggestions for a horizon, newest first."""
+	con = _suggestion_db()
+	rows = con.execute(
+		"SELECT ticker, as_of, entry, target, probability, closed_hit, touched_hit, final_return, best_return "
+		"FROM suggestions WHERE horizon = ? AND as_of >= ? ORDER BY as_of DESC, probability DESC",
+		(str(horizon), int(since)),
+	).fetchall()
+	con.close()
+	return rows

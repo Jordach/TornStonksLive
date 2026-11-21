@@ -24,17 +24,13 @@ verification_keys = []
 event_key = ""
 client = ""
 
-best_gain = ""
-best_loss = ""
-best_rand = ""
-rand_not_more = False
-last_pred_id = []
 json_data = ""
 
 gold_daily = ""
 gold_weekly = ""
 gold_monthly = ""
 
+# Scheduled daily/weekly upswing suggestions (see tsl_core/analysis/upswing.py)
 enable_suggestions = False
 
 intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True, message_content=True)

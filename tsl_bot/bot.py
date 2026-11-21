@@ -26,8 +26,7 @@ class Bot(discord.Client):
 	process_weekly_volatility = bot_volatility.process_weekly_volatility
 
 	# Suggestions
-	post_recommendations = bot_suggest.post_recommendations
-	post_single_recommendation = bot_suggest.post_single_recommendation
+	post_suggestions = bot_suggest.post_suggestions
 	make_suggestions = bot_suggest.make_suggestions
 
 	# Set the profile thing
@@ -46,29 +45,8 @@ class Bot(discord.Client):
 		# await self.tree.sync() The /sync slash command now makes this easier at runtime
 
 		await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="Torn City Stocks"))
-		if config.enable_suggestions:
-			config.last_pred_id = []
-			for key in range(0, len(config.suggestion_channels["id"])):
-				channel = await self.fetch_channel(config.suggestion_channels["id"][key])
-				# history() is an async iterator in discord.py 2.x (.flatten() was removed)
-				pred_message = [msg async for msg in channel.history(limit=1)]
-				three = "3️⃣"
-				# Avoid trying to get messages from completely empty channels
-				if len(pred_message) == 0:
-					continue
-				elif len(pred_message[0].reactions) == 0:
-					continue
-				# Compare the emoji, not the Reaction object, against the string
-				config.rand_not_more = str(pred_message[0].reactions[0].emoji) == three
-				config.last_pred_id.append(pred_message[0])
 		tsl_lib.util.write_log("[STARTUP] TornStonks Live started.", tsl_lib.util.current_date())
 		config.bot_started = True
-
-	#async def on_raw_reaction_add(self, payload):
-		#await bot_suggest.suggest_react_add(self, payload)
-	
-	#async def on_raw_reaction_remove(self, payload):
-		#await bot_suggest.suggest_react_remove(self, payload)
 
 	async def on_message(self, message):
 		# The bot should never respond to itself, ever

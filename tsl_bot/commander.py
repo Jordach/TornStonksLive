@@ -23,7 +23,6 @@ slash_cmd = []
 
 # Hidden defaults
 # commands.append(("stop", cmd_admin.cmd_stop, True, False))
-# commands.append(("force_suggestions", cmd_admin.force_suggestions, False, False))
 # commands.append(("force_volatility", cmd_admin.force_volatility, False, False))
 # commands.append(("system_message", cmd_admin.system_message, True, False))
 # commands.append(("sync", cmd_admin.sync_commands, True, False))
