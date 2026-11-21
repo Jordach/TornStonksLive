@@ -9,15 +9,15 @@ import os
 import re
 from urllib.request import pathname2url
 
-def get_tornsy_candles(ticker, interval, limit, to="NONE"):
+def get_tornsy_candles(ticker, interval, limit, to="NONE", timeout=30):
 	ohlc_address = "https://tornsy.com/api/" + ticker + "?interval=" + interval + "&limit=" + limit
 
 	# If a timestamp was specified, add that to the call
 	if to != "NONE":
 		ohlc_address = ohlc_address + "&to=" + str(to)
-	
+
 	try:
-		ohlc_req = requests.get(ohlc_address, timeout=30)
+		ohlc_req = requests.get(ohlc_address, timeout=timeout)
 	except requests.RequestException:
 		return False
 	if ohlc_req.status_code == 200:
@@ -95,7 +95,7 @@ def get_stock_df(ticker, interval):
 		con.close()
 	return df.astype({"date": "int64", "open": "float64", "high": "float64", "low": "float64", "close": "float64"})
 
-def fill_daily_gaps_from_tornsy(ticker, limit=2000):
+def fill_daily_gaps_from_tornsy(ticker, limit=2000, timeout=10):
 	"""
 	Fill missing completed d1 candles from Tornsy's own daily history. The m1-based
 	backfill only reaches back a day or so, so any downtime leaves holes in d1 that
@@ -105,7 +105,7 @@ def fill_daily_gaps_from_tornsy(ticker, limit=2000):
 	name = ticker.lower()
 	if not _TICKER_PATTERN.match(name):
 		raise ValueError("Invalid ticker: " + repr(ticker))
-	ohlc = get_tornsy_candles(name, "d1", str(int(limit)))
+	ohlc = get_tornsy_candles(name, "d1", str(int(limit)), timeout=timeout)
 	if not ohlc or "data" not in ohlc:
 		return -1
 

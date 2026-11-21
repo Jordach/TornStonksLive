@@ -335,9 +335,13 @@ class _ModelCache:
 		with self._lock:
 			today = _today_start()
 			if self._day != today or self._data is None:
+				# This holds the lock and, from the scheduler, the thread that also fetches
+				# prices every minute - so give up on the first unreachable call rather
+				# than waiting out a timeout for every stock during a Tornsy outage
 				for ticker in tickers:
 					try:
-						fill_daily_gaps_from_tornsy(ticker)
+						if fill_daily_gaps_from_tornsy(ticker) == -1:
+							break
 					except Exception:
 						pass  # Train on whatever local history exists
 					time.sleep(0.05)
