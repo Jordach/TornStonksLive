@@ -79,13 +79,12 @@ class util:
 		return requests.get("https://api.torn.com/user/?selections=stocks&key=" + api_key, timeout=10)
 
 	def lut_stock_id(name):
-		global stock_lut
-		id=1
-		for item in stock_lut:
-			if name == item:
-				break
-			id+=1
-		return str(id)
+		# Torn stock IDs are 1-based positions in stock_lut. Unknown tickers return
+		# "0" rather than len(stock_lut)+1, which pointed at a non-existent stock.
+		name = str(name).upper()
+		if name in stock_lut:
+			return str(stock_lut.index(name) + 1)
+		return "0"
 
 	def strip_commas(value):
 		return value.replace(",", "")

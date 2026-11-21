@@ -127,9 +127,9 @@ def read_token():
 				bot_token = line.strip()
 				
 	if bot_token == "":
-		with open("settings.conf") as file:
-			file.write("")
-			raise Exception("Bot token is missing")
+		# (Previously opened the file read-only and wrote to it, which raised
+		# io.UnsupportedOperation instead of this message.)
+		raise Exception("Bot token is missing - put it on the first line of settings.conf")
 
 # DEPRECATED NOTICE:
 # Will be replaced by slash commands soon
