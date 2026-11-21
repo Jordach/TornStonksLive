@@ -9,10 +9,10 @@ import tsl_bot.functions.suggest as suggest
 client = config.client
 
 
-@client.tree.command(name="suggest", description="Stocks likely to swing up or down over the next few days (daily) or week (weekly).")
+@client.tree.command(name="suggest", description="TA-backed upswing picks, and dips worth buying before they recover.")
 @app_commands.describe(
-	horizon="Daily: a 0.5% move after 3 days. Weekly: a 1% move after 7 days.",
-	direction="Upswings (likely to rise), downswings (likely to fall), or both.",
+	horizon="Daily: 0.5% moves over days. Weekly: 1% moves over a week or more.",
+	direction="Upswings (buy now), Buy the Dip (buy order below today's price), or both.",
 	view="Current picks, stocks ranked by chance, or how past picks performed.",
 	days="Track record only: how many days of history to include.",
 )
@@ -23,8 +23,8 @@ client = config.client
 	],
 	direction=[
 		app_commands.Choice(name="Both", value="both"),
-		app_commands.Choice(name="Upswings (likely to rise)", value="up"),
-		app_commands.Choice(name="Downswings (likely to fall)", value="down"),
+		app_commands.Choice(name="Upswings (likely to rise soon)", value="up"),
+		app_commands.Choice(name="Buy the Dip (drops soon, then recovers)", value="dip"),
 	],
 	view=[
 		app_commands.Choice(name="Picks", value="picks"),
