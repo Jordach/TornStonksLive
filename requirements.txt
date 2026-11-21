@@ -8,3 +8,5 @@ ta
 cryptography
 requests
 xgboost
+scipy
+TA-Lib
