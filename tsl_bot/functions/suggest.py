@@ -199,6 +199,21 @@ def build_picks_embed(results, ranking=False):
 			desc += ", backed by " + str(results[d]["min_signals"]) + "+ TA signals"
 		desc += " (usually " + _pct(results[d]["base_rate"], False) + " of stocks)\n"
 
+	if not ranking:
+		# Name the picks in the description too: notification previews and
+		# Discord's "Copy Text" only carry the title and description, not fields
+		desc += "\n**Picks:**\n"
+		for d in dirs:
+			info = swing.DIRECTIONS[d]
+			result = results[d]
+			if result["picks"]:
+				names = ", ".join(_stock_label(p["ticker"]) for p in result["picks"])
+			elif result["ranking"]:
+				names = "none qualify (closest: " + _stock_label(result["ranking"][0]["ticker"]) + ")"
+			else:
+				names = "none qualify"
+			desc += info["icon"] + " " + info["label"] + ": " + names + "\n"
+
 	embed = discord.Embed(title=title, description=desc.strip())
 	embed.color = discord.Color.blue()
 	embed.set_thumbnail(url=config.stonks_png)
