@@ -320,7 +320,7 @@ def build_picks_embed(results, ranking=False):
 		tips.append("📈 Upswing: a buy at today's price.")
 	if "dip" in dirs:
 		tips.append("📉 Buy the Dip: set a buy order at the buy price; the dip only comes about 1 in 3 times, so if it doesn't, skip it.")
-	tips.append("Watchlist stocks are close but don't meet the bar. /suggest view:Track Record shows how past picks did. This bot is not sound advice.")
+	tips.append("Watchlist stocks are close but don't meet the bar. /suggest view:Track Record shows how past picks did. Unsure of a term? /glossary. This bot is not sound advice.")
 	embed.set_footer(text=" ".join(tips))
 	return embed
 
