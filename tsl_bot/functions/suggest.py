@@ -35,6 +35,18 @@ def _day(ts):
 	return _dt(ts).strftime("%a %d/%m")
 
 
+def _deadline(day_ts):
+	"""
+	The close of a Torn day as a fixed TCT time plus a live Discord countdown,
+	e.g. "**Fri 27/11 23:59 TCT** (in 6 days)". Discord timestamps always render
+	in the viewer's own timezone, so the absolute time stays written in TCT and
+	only the timezone-independent relative form uses <t:...:R>. Timestamps only
+	render in descriptions and field values, not titles, names or footers.
+	"""
+	close = int(day_ts) + 86399
+	return "**" + _day(day_ts) + " 23:59 TCT** (<t:" + str(close) + ":R>)"
+
+
 def _pct(val, signed=True):
 	if val is None or (isinstance(val, float) and math.isnan(val)):
 		return "n/a"
@@ -130,7 +142,7 @@ def _chance(pick, result):
 def _up_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
 	value = _heading_block(pick["ticker"])
-	value += "Buy around **" + _money(pick["close"]) + "**, target **" + _money(pick["target"]) + "** by the close on " + _day(result["target_day"])
+	value += "Buy around **" + _money(pick["close"]) + "**, target **" + _money(pick["target"]) + "** by " + _deadline(result["target_day"])
 	if live is not None:
 		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + " since the close)"
 		if live >= pick["target"]:
@@ -149,8 +161,8 @@ def _up_value(pick, result):
 def _dip_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
 	value = _heading_block(pick["ticker"])
-	value += "Set a buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + "), keep it until " + _day(result["target_day"])
-	value += "\nIf it fills, expect **" + _money(pick["target"]) + "** or better by the close on " + _day(result["recover_day"])
+	value += "Set a buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + "), keep it until " + _deadline(result["target_day"])
+	value += "\nIf it fills, expect **" + _money(pick["target"]) + "** or better by " + _deadline(result["recover_day"])
 	if live is not None:
 		value += "\nNow " + _money(live)
 		if live <= pick["buy_zone"]:
@@ -234,7 +246,7 @@ def build_picks_embed(results, ranking=False):
 		if "up" in dirs:
 			r = results["up"]
 			who, verb, note = _subject("up", named)
-			line = "📈 **Upswing**: " + who + " " + verb + " expected to rise at least " + pct + " by the close on " + _day(r["target_day"])
+			line = "📈 **Upswing**: " + who + " " + verb + " expected to rise at least " + pct + " by " + _deadline(r["target_day"])
 			# Watchlist stocks are there precisely because they lack the signals
 			if r["min_signals"] and (r["picks"] or not named):
 				line += ", confirmed by " + str(r["min_signals"]) + "+ chart signals"
@@ -242,8 +254,8 @@ def build_picks_embed(results, ranking=False):
 		if "dip" in dirs:
 			r = results["dip"]
 			who, verb, note = _subject("dip", named)
-			lines.append("📉 **Buy the Dip**: " + who + " " + verb + " expected to fall " + pct + " by " + _day(r["target_day"])
-				+ ", then recover above the " + _day(first["as_of"]) + " close by " + _day(r["recover_day"]) + "." + note)
+			lines.append("📉 **Buy the Dip**: " + who + " " + verb + " expected to fall " + pct + " by " + _deadline(r["target_day"])
+				+ ", then recover above the " + _day(first["as_of"]) + " close by " + _deadline(r["recover_day"]) + "." + note)
 		return "\n".join(lines)
 
 	meaning = _meaning(named=not ranking)
