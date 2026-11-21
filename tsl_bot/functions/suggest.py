@@ -73,6 +73,15 @@ def _stock_heading(ticker):
 	return "**[" + name + "](" + _stock_link(ticker) + ")** · `" + ticker.upper() + "`"
 
 
+def _heading_block(ticker):
+	"""
+	The stock's name line set apart by a blank line above and below, ending in
+	a colon. Discord trims leading blank lines from a field, so a zero-width
+	space keeps the gap when this opens the field.
+	"""
+	return "​\n" + _stock_heading(ticker) + ":\n\n"
+
+
 def _stock_label(ticker):
 	"""Plain "Full Name (TCK)" for places links don't render, like field titles."""
 	name = _stock_name(ticker)
@@ -120,8 +129,8 @@ def _chance(pick, result):
 
 def _up_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
-	value = _stock_heading(pick["ticker"])
-	value += "\nBuy around **" + _money(pick["close"]) + "**, target **" + _money(pick["target"]) + "** by the close on " + _day(result["target_day"])
+	value = _heading_block(pick["ticker"])
+	value += "Buy around **" + _money(pick["close"]) + "**, target **" + _money(pick["target"]) + "** by the close on " + _day(result["target_day"])
 	if live is not None:
 		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + " since the close)"
 		if live >= pick["target"]:
@@ -139,8 +148,8 @@ def _up_value(pick, result):
 
 def _dip_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
-	value = _stock_heading(pick["ticker"])
-	value += "\nSet a buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + "), keep it until " + _day(result["target_day"])
+	value = _heading_block(pick["ticker"])
+	value += "Set a buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + "), keep it until " + _day(result["target_day"])
 	value += "\nIf it fills, expect **" + _money(pick["target"]) + "** or better by the close on " + _day(result["recover_day"])
 	if live is not None:
 		value += "\nNow " + _money(live)
@@ -208,18 +217,36 @@ def build_picks_embed(results, ranking=False):
 	else:
 		title = "📊 " + hz["label"] + " Stock Suggestions"
 
-	# What each section means, tied to the close the analysis was run on
-	meaning = ""
-	if "up" in dirs:
-		r = results["up"]
-		meaning += "📈 **Upswing**: expected to rise at least " + pct + " by the close on " + _day(r["target_day"])
-		if r["min_signals"]:
-			meaning += ", confirmed by " + str(r["min_signals"]) + "+ chart signals"
-		meaning += ".\n"
-	if "dip" in dirs:
-		r = results["dip"]
-		meaning += "📉 **Buy the Dip**: expected to fall " + pct + " by " + _day(r["target_day"]) + ", then recover above the " + _day(first["as_of"]) + " close by " + _day(r["recover_day"]) + ".\n"
-	meaning = meaning.strip()
+	def _subject(d, named):
+		"""("TCI and TGP are", note) naming the section's stocks, or a generic subject."""
+		r = results[d]
+		stocks = r["picks"] or r["watchlist"]
+		if not named or not stocks:
+			return ("Picks", "are", "")
+		labels = ["**" + _stock_label(s["ticker"]) + "**" for s in stocks]
+		joined = labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+		note = "" if r["picks"] else " *(watchlist only, below the confidence bar)*"
+		return (joined, "is" if len(labels) == 1 else "are", note)
+
+	def _meaning(named):
+		"""What each section means, tied to the close the analysis was run on."""
+		lines = []
+		if "up" in dirs:
+			r = results["up"]
+			who, verb, note = _subject("up", named)
+			line = "📈 **Upswing**: " + who + " " + verb + " expected to rise at least " + pct + " by the close on " + _day(r["target_day"])
+			# Watchlist stocks are there precisely because they lack the signals
+			if r["min_signals"] and (r["picks"] or not named):
+				line += ", confirmed by " + str(r["min_signals"]) + "+ chart signals"
+			lines.append(line + "." + note)
+		if "dip" in dirs:
+			r = results["dip"]
+			who, verb, note = _subject("dip", named)
+			lines.append("📉 **Buy the Dip**: " + who + " " + verb + " expected to fall " + pct + " by " + _day(r["target_day"])
+				+ ", then recover above the " + _day(first["as_of"]) + " close by " + _day(r["recover_day"]) + "." + note)
+		return "\n".join(lines)
+
+	meaning = _meaning(named=not ranking)
 
 	if ranking:
 		desc = "Based on closing prices on **" + _day(first["as_of"]) + "**.\n" + meaning
@@ -250,7 +277,8 @@ def build_picks_embed(results, ranking=False):
 				embed.add_field(name=info["icon"] + " " + info["label"] + " #" + str(i + 1) + ": " + _stock_label(pick["ticker"]), value=render(pick, result), inline=False)
 			if not result["picks"]:
 				for item in result["watchlist"]:
-					value = "*Not a recommendation yet: " + "; ".join(item["shortfall"]) + ".*\n" + render(item, result)
+					# The shortfall note replaces the zero-width spacer above the name line
+					value = "*Not a recommendation yet: " + "; ".join(item["shortfall"]) + ".*\n" + render(item, result).replace("​\n", "\n", 1)
 					embed.add_field(name="👀 " + info["label"] + " watchlist: " + _stock_label(item["ticker"]), value=value, inline=False)
 		embed.add_field(name="Based on the " + _day(first["as_of"]) + " close:", value=meaning, inline=False)
 
