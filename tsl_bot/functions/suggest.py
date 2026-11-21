@@ -60,6 +60,29 @@ def _live_stock(ticker):
 	return ticker.upper(), None
 
 
+def _stock_name(ticker):
+	name, _ = _live_stock(ticker)
+	return name if name.upper() != ticker.upper() else ticker.upper()
+
+
+def _stock_link(ticker):
+	return "https://www.torn.com/page.php?sid=stocks&stockID=" + tsl_lib.util.lut_stock_id(ticker) + "&tab=owned"
+
+
+def _stock_heading(ticker):
+	"""Bold, linked full name plus ticker, e.g. **[Torn City Investments](...)** · `TCI`."""
+	name = _stock_name(ticker)
+	if name == ticker.upper():
+		return "**[" + ticker.upper() + "](" + _stock_link(ticker) + ")**"
+	return "**[" + name + "](" + _stock_link(ticker) + ")** · `" + ticker.upper() + "`"
+
+
+def _stock_label(ticker):
+	"""Plain "Full Name (TCK)" for places links don't render, like field titles."""
+	name = _stock_name(ticker)
+	return ticker.upper() if name == ticker.upper() else name + " (" + ticker.upper() + ")"
+
+
 def _directions(direction):
 	return list(swing.DIRECTIONS) if direction in (None, "both") else [direction]
 
@@ -97,7 +120,8 @@ def record_picks(results):
 
 def _up_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
-	value = "Buy near **" + _money(pick["close"]) + "** → target **" + _money(pick["target"]) + "** by " + _short_date(result["expires"])
+	value = _stock_heading(pick["ticker"])
+	value += "\nBuy near **" + _money(pick["close"]) + "** → target **" + _money(pick["target"]) + "** by " + _short_date(result["expires"])
 	if live is not None:
 		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + ")"
 		if live >= pick["target"]:
@@ -112,7 +136,8 @@ def _up_value(pick, result):
 
 def _dip_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
-	value = "Buy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + ") until " + _short_date(result["dip_deadline"])
+	value = _stock_heading(pick["ticker"])
+	value += "\nBuy order at **" + _money(pick["buy_zone"]) + "** (" + _pct(pick["buy_zone"] / pick["close"] - 1) + ") until " + _short_date(result["dip_deadline"])
 	value += "\nRecovery target **" + _money(pick["target"]) + "** by " + _short_date(result["expires"])
 	if live is not None:
 		value += "\nNow " + _money(live)
@@ -195,9 +220,12 @@ def build_picks_embed(results, ranking=False):
 			result = results[d]
 			if result["picks"]:
 				for i, pick in enumerate(result["picks"]):
-					name, _ = _live_stock(pick["ticker"])
 					value = _up_value(pick, result) if d == "up" else _dip_value(pick, result)
-					embed.add_field(name=info["icon"] + " " + str(i + 1) + ". " + name + " (" + pick["ticker"] + ")", value=value, inline=False)
+					title = info["icon"] + " " + info["label"] + " #" + str(i + 1) + " · " + pick["ticker"]
+					name = _stock_name(pick["ticker"])
+					if name != pick["ticker"]:
+						title += " · " + name
+					embed.add_field(name=title, value=value, inline=False)
 			else:
 				need = "**" + _lift(result["min_lift"]) + "** the usual chance"
 				if d == "up" and result["min_signals"]:
@@ -205,7 +233,7 @@ def build_picks_embed(results, ranking=False):
 				msg = "Nothing qualifies today (needs " + need + ")."
 				if result["ranking"]:
 					closest = result["ranking"][0]
-					msg += "\nClosest: **" + closest["ticker"] + "** " + _pct(closest["probability"], False) + " (" + _lift(closest["lift"])
+					msg += "\nClosest: " + _stock_heading(closest["ticker"]) + " · " + _pct(closest["probability"], False) + " (" + _lift(closest["lift"])
 					msg += (", " + _signals(closest["bull_score"]) + ")" if d == "up" else ")")
 				embed.add_field(name=info["icon"] + " " + info["label"] + ":", value=msg, inline=False)
 
