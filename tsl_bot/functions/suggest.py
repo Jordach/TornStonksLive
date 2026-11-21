@@ -272,7 +272,8 @@ def build_picks_embed(results, ranking=False):
 		for d in dirs:
 			info = swing.DIRECTIONS[d]
 			result = results[d]
-			render = _up_value if d == "up" else _dip_value
+			# Trailing zero-width line separates entries; Discord trims plain trailing newlines
+			render = lambda item, res, f=(_up_value if d == "up" else _dip_value): f(item, res) + "\n​"
 			for i, pick in enumerate(result["picks"]):
 				embed.add_field(name=info["icon"] + " " + info["label"] + " #" + str(i + 1) + ": " + _stock_label(pick["ticker"]), value=render(pick, result), inline=False)
 			if not result["picks"]:
