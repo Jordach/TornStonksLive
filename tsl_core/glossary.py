@@ -15,10 +15,8 @@ language, Discord markdown allowed, under ~900 characters) and related (keys).
 import difflib
 
 CATEGORIES = ["Suggestions", "Chart signals", "Drop signs", "Indicators", "Other"]
-
-# Hit rates and backtest figures quoted below were measured at this point;
-# suggestion posts carry the live, daily-refreshed backtest
-FIGURES_AS_OF = "Nov 2026"
+# Hit rates and backtest figures quoted below were measured in Nov 2026;
+# refresh them by hand if they drift (suggestion posts carry the live backtest)
 
 ENTRIES = [
 	# ── Suggestions ─────────────────────────────────────────────

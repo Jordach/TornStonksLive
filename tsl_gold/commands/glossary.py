@@ -23,7 +23,6 @@ def _entry_embed(entry):
 	related = [glossary.get(k) for k in entry["related"] if glossary.get(k)]
 	if related:
 		embed.add_field(name="Related:", value=" · ".join(r["title"] for r in related), inline=False)
-	embed.set_footer(text=entry["category"] + " · Figures as of " + glossary.FIGURES_AS_OF + "; each suggestion post shows the latest backtest · /glossary to browse every term")
 	return embed
 
 
