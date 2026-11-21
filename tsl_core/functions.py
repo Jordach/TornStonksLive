@@ -1,5 +1,6 @@
 import threading
 import time
+import traceback
 import schedule
 import requests
 from tsl_core.analysis.predict import predict_stock as _predict_stock
@@ -108,7 +109,15 @@ class util:
 			@classmethod
 			def run(cls):
 				while not cease_continuous_run.is_set():
-					schedule.run_pending()
+					# schedule does not catch job exceptions; without this a single
+					# failed job kills the thread and all future jobs silently stop.
+					try:
+						schedule.run_pending()
+					except Exception:
+						try:
+							_write_log("[ERROR] Scheduled job failed:\n" + traceback.format_exc(), _update_date())
+						except Exception:
+							traceback.print_exc()
 					time.sleep(interval)
 
 		continuous_thread = ScheduleThread()
