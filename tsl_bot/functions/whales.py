@@ -68,9 +68,10 @@ def process_stockdata(self):
 		value_total = diff_shares * price
 		price_bn = float(value_total) / 1000000000
 
-		perc_shares = ((total_shares - total_shares_m1) / total_shares_m1) * 100
+		# New/relisted stocks can report 0 for the previous minute
+		perc_shares = ((total_shares - total_shares_m1) / total_shares_m1) * 100 if total_shares_m1 else 0.0
 		diff_investor = int(investors - investors_m1)
-		perc_investor = ((investors - investors_m1) / investors_m1) * 100
+		perc_investor = ((investors - investors_m1) / investors_m1) * 100 if investors_m1 else 0.0
 
 		# Sell event
 		if total_shares < total_shares_m1 and data["stock"] != "TCSE":

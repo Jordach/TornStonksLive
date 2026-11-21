@@ -120,7 +120,8 @@ class util:
 							traceback.print_exc()
 					time.sleep(interval)
 
-		continuous_thread = ScheduleThread()
+		# Daemon so the process can exit when the bot stops or crashes
+		continuous_thread = ScheduleThread(daemon=True)
 		continuous_thread.start()
 		return cease_continuous_run
 

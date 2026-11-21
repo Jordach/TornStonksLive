@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import discord
 
 import tsl_core.functions as tsl_lib
@@ -307,28 +308,43 @@ def read_user_alerts():
 			tsl_lib.util.current_date(),
 		)
 
-def write_user_alerts():
-	global userdata
+# userdata is only mutated on the bot's event loop. Saving can happen on a worker
+# thread, so callers take a snapshot on the loop first and the worker writes that.
+_user_alerts_write_lock = threading.Lock()
+_user_alerts_generation = 0
+_user_alerts_written_generation = 0
+
+def snapshot_user_alerts():
+	"""Copy userdata into a list of rows plus a generation number. Returns None if corrupted."""
+	global _user_alerts_generation
 	id_len = len(userdata["id"])
-	ty_len = len(userdata["type"])
-	st_len = len(userdata["stock"])
-	vl_len = len(userdata["value"])
-
-	if id_len != ty_len or id_len != st_len or id_len != vl_len:
+	if id_len != len(userdata["type"]) or id_len != len(userdata["stock"]) or id_len != len(userdata["value"]):
 		tsl_lib.util.write_log("[FATAL] userdata memory corrupted or invalid, restart bot immediately.", tsl_lib.util.current_date())
-		return
+		return None
+	_user_alerts_generation += 1
+	rows = list(zip(userdata["id"], userdata["type"], userdata["stock"], userdata["value"]))
+	return (_user_alerts_generation, rows)
 
-	conn = _get_db_connection()
-	cur = conn.cursor()
-	# Replace the entire table contents atomically
-	cur.execute("DELETE FROM user_alerts")
-	for i in range(id_len):
-		cur.execute(
-			"INSERT INTO user_alerts (id, type, stock, value) VALUES (?, ?, ?, ?)",
-			(userdata["id"][i], userdata["type"][i], userdata["stock"][i], userdata["value"][i]),
-		)
-	conn.commit()
-	conn.close()
+def write_user_alerts(snapshot=None):
+	global _user_alerts_written_generation
+	if snapshot is None:
+		snapshot = snapshot_user_alerts()
+	if snapshot is None:
+		return
+	generation, rows = snapshot
+
+	with _user_alerts_write_lock:
+		# A newer snapshot has already been saved; writing this one would undo it
+		if generation <= _user_alerts_written_generation:
+			return
+		conn = _get_db_connection()
+		cur = conn.cursor()
+		# Replace the entire table contents atomically
+		cur.execute("DELETE FROM user_alerts")
+		cur.executemany("INSERT INTO user_alerts (id, type, stock, value) VALUES (?, ?, ?, ?)", rows)
+		conn.commit()
+		conn.close()
+		_user_alerts_written_generation = generation
 
 # Migrates from verify_api_keys.conf and event_key.conf on first run.
 # Schema supports (discord_id, encrypted_key) pairs for future per-user storage.

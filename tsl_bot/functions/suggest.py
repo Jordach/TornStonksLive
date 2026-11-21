@@ -1,3 +1,4 @@
+import asyncio
 import json
 import random
 import discord
@@ -143,11 +144,11 @@ def make_suggestions(self):
 		with open("best_rand.json", "w") as file:
 			json.dump(best_rand, file)
 
-		self.loop.create_task(self.post_recommendations(best_up, best_down, best_rand))
+		asyncio.run_coroutine_threadsafe(self.post_recommendations(best_up, best_down, best_rand), self.loop)
 	else:
 		not_more = True
 		stocks = [*stock_data.keys()]
 		if len(stocks) > 0:
 			stoch_tick = stocks[random.randint(0, len(stocks) - 1)]
 			best_rand = stock_data[stoch_tick]
-			self.loop.create_task(self.post_single_recommendation(best_rand))
+			asyncio.run_coroutine_threadsafe(self.post_single_recommendation(best_rand), self.loop)

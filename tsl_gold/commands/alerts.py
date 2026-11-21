@@ -6,6 +6,11 @@ import tsl_config.config as config
 from discord import app_commands
 client = config.client
 
+async def _save_alerts():
+	"""Snapshot alerts on the event loop, then write that snapshot to SQLite off-loop."""
+	snapshot = config.snapshot_user_alerts()
+	await asyncio.to_thread(config.write_user_alerts, snapshot)
+
 async def ticker_autocomplete(interaction: discord.Interaction, current: str):
 	return [
 		app_commands.Choice(name=t, value=t)
@@ -64,7 +69,7 @@ async def alerts(interaction: discord.Interaction, mode: str, ticker: str, value
 	else:
 		config.userdata["value"].append(_value)
 
-	await asyncio.get_event_loop().run_in_executor(None, config.write_user_alerts)
+	await _save_alerts()
 
 	embed = discord.Embed(title=":white_check_mark: Will send you a DM when the criteria is reached. :white_check_mark:")
 	embed.color = discord.Color.dark_green()
@@ -157,7 +162,7 @@ async def undo(interaction: discord.Interaction):
 		if int(interaction.user.id) == config.userdata["id"][key]:
 			notice = "`/alert " + config.userdata["type"][key] + " " + config.userdata["stock"][key] + " " + "{:,.2f}".format(config.userdata["value"][key]) + "`"
 			_delete_alert(interaction, key)
-			await asyncio.get_event_loop().run_in_executor(None, config.write_user_alerts)
+			await _save_alerts()
 			embed = discord.Embed(title="")
 			embed.color = discord.Color.red()
 			client.set_author_interaction(interaction, embed)
@@ -183,7 +188,7 @@ async def forget_me(interaction: discord.Interaction):
 		await _no_alerts(interaction)
 		return
 
-	await asyncio.get_event_loop().run_in_executor(None, config.write_user_alerts)
+	await _save_alerts()
 	embed = discord.Embed(title="")
 	embed.color = discord.Color.red()
 	client.set_author_interaction(interaction, embed)
@@ -226,7 +231,7 @@ async def forget(interaction: discord.Interaction, ticker: str, mode: str = None
 		await _no_alerts(interaction, title="No Matching Notifications Found.")
 		return
 
-	await asyncio.get_event_loop().run_in_executor(None, config.write_user_alerts)
+	await _save_alerts()
 	embed = discord.Embed(title="")
 	embed.color = discord.Color.red()
 	client.set_author_interaction(interaction, embed)

@@ -4,6 +4,7 @@ import importlib
 import pkgutil
 import cryptography
 import schedule
+import traceback
 from discord import app_commands
 
 import tsl_config.config as config
@@ -44,6 +45,16 @@ try:
 except:
 	raise Exception("Tornsy probably timed out - you likely have no network access.")
 
+# Scheduled jobs run on a background thread, but anything that touches Discord or the
+# shared alert lists must run on the bot's event loop. This hands `func` over to it.
+def run_on_bot_loop(func, description):
+	def runner():
+		try:
+			func(config.client)
+		except Exception:
+			tsl_lib.util.write_log("[WARNING] Potential problem with " + description + ":\n" + traceback.format_exc(), current_day)
+	config.client.loop.call_soon_threadsafe(runner)
+
 def get_latest_stocks():
 	global current_day
 	current_day = tsl_lib.util.current_date()
@@ -58,7 +69,7 @@ def get_latest_stocks():
 		config.json_data = json.loads(tornsy_data.text)
 		tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.intervals)
 		if config.bot_started:
-			tsl_bot.Bot.process_stockdata(config.client)
+			run_on_bot_loop(tsl_bot.Bot.process_stockdata, "stock alerts")
 	else:
 		tsl_lib.util.write_log("[WARNING] Server returned error code: " + str(tornsy_data.status_code), current_day)
 
@@ -67,31 +78,24 @@ get_latest_stocks()
 
 def check_volatility():
 	if config.bot_started:
-		try:
-			tsl_bot.Bot.process_volatility(config.client)
-		except:
-			tsl_lib.util.write_log("[WARNING] Potential problem with volatiltity checks.", current_day)
+		run_on_bot_loop(tsl_bot.Bot.process_volatility, "volatility checks")
 
 def check_daily_volatility():
 	if config.bot_started:
-		try:
-			tsl_bot.Bot.process_daily_volatility(config.client)
-		except:
-			tsl_lib.util.write_log("[WARNING] Potential problem with volatiltity checks.", current_day)
+		run_on_bot_loop(tsl_bot.Bot.process_daily_volatility, "volatility checks")
 
 def check_weekly_volatility():
 	if config.bot_started:
-		try:
-			tsl_bot.Bot.process_weekly_volatility(config.client)
-		except:
-			tsl_lib.util.write_log("[WARNING] Potential problem with volatiltity checks.", current_day)
+		run_on_bot_loop(tsl_bot.Bot.process_weekly_volatility, "volatility checks")
 
 def suggests():
+	# Predictions are CPU heavy, so these stay on the scheduler thread;
+	# make_suggestions posts its results back to the bot loop thread-safely.
 	if config.bot_started:
 		try:
-			tsl_bot.Bot.process_suggestions(config.client)
-		except:
-			tsl_lib.util.write_log("[WARNING] Potential problem with suggestion predictions.", current_day)
+			tsl_bot.Bot.make_suggestions(config.client)
+		except Exception:
+			tsl_lib.util.write_log("[WARNING] Potential problem with suggestion predictions:\n" + traceback.format_exc(), current_day)
 
 # Initiate background thread and jobs
 enable_suggestions = False
