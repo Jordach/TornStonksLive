@@ -6,6 +6,8 @@ import math
 from datetime import datetime
 import time
 import os
+import re
+from urllib.request import pathname2url
 
 def get_tornsy_candles(ticker, interval, limit, to="NONE"):
 	ohlc_address = "https://tornsy.com/api/" + ticker + "?interval=" + interval + "&limit=" + limit
@@ -24,24 +26,34 @@ def get_tornsy_candles(ticker, interval, limit, to="NONE"):
 	else:
 		return False
 
+# Tables that exist in each stock DB. Interval names are spliced into SQL as table
+# names, so anything outside this list must be rejected.
+_DB_INTERVALS = {"m1", "m5", "m15", "m30", "h1", "h2", "h4", "h6", "h12", "d1"}
+_TICKER_PATTERN = re.compile(r"^[a-z]{2,6}$")
+
 def get_stock_from_db(ticker, interval, limit=-1):
 	# Translate between local SQL db and expected formatting:
-	pwd = os.getcwd()
 	name = ticker.lower()
-	con = sqlite3.connect(pwd + "/db/db_" + name + ".db")
-	cur = con.cursor()
+	interval = interval.lower()
+	# Tickers become file names and intervals become table names, so validate both
+	if not _TICKER_PATTERN.match(name):
+		raise ValueError("Invalid ticker: " + repr(ticker))
+	if interval not in _DB_INTERVALS:
+		raise ValueError("Invalid interval: " + repr(interval))
+
+	# Read-only so an unknown ticker raises instead of creating an empty DB file
+	path = os.path.join(os.getcwd(), "db", "db_" + name + ".db")
+	con = sqlite3.connect("file:" + pathname2url(path) + "?mode=ro", uri=True)
 
 	ohlc_data = []
 
-	query = "SELECT * FROM " + interval.lower() + " ORDER BY date DESC"
-	if limit > 0:
-		query += " LIMIT " + str(limit)
-	else:
-		query += " LIMIT 4000"
+	query = "SELECT * FROM " + interval + " ORDER BY date DESC LIMIT ?"
+	try:
+		for row in con.execute(query, (int(limit) if limit > 0 else 4000,)):
+			ohlc_data.append(row)
+	finally:
+		con.close()
 
-	for row in cur.execute(query):
-		ohlc_data.append(row)
-	
 	# Fix inverse sort
 	ohlc_data.sort(key=lambda tup: tup[0])
 
@@ -68,13 +80,14 @@ def get_stock_from_db(ticker, interval, limit=-1):
 def import_from_tornsy(ticker, intervals, limit=-1):
 	pwd = os.getcwd()
 	name = ticker.lower()
-	con = sqlite3.connect(pwd + "/db/db_" + name + ".db")
-	cur = con.cursor()
 
 	ohlc_data = get_tornsy_candles(ticker, "m1", "2000")
 	if not ohlc_data:
 		return
-	
+
+	con = sqlite3.connect(pwd + "/db/db_" + name + ".db")
+	cur = con.cursor()
+
 	dt = {"date":[], "Open":[], "High":[], "Low":[], "Close":[]}
 
 	# Only grab previous entries if there are exactly 1440 m1 entries corresponding to one day.
@@ -88,7 +101,8 @@ def import_from_tornsy(ticker, intervals, limit=-1):
 		while True:
 			ohlc = get_tornsy_candles(ticker, "m1", str(max_items), cdate)
 			if not ohlc:
-				return
+				# Keep whatever history was fetched before the failure
+				break
 
 			cdate = str(ohlc["data"][0][0])
 			ohlcs.insert(0, ohlc)
@@ -200,88 +214,73 @@ def update_from_tornsy(json_data, intervals):
 				timestamp = floor(dat / 60) * 60
 			timestamp = int(timestamp)
 
-			cmd = "INSERT INTO " + interval + "(date, open, high, low, close) VALUES "
-			cmd += "(" + str(timestamp) + ", "
-			cmd += data["price"] + ", "
-			cmd += data["price"] + ", "
-			cmd += data["price"] + ", "
-			cmd += data["price"] + ") "
+			# Newly listed stocks have no tables yet; without this the insert raises
+			cur.execute("CREATE TABLE IF NOT EXISTS " + interval + " (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
+
+			price = float(data["price"])
+			cmd = "INSERT INTO " + interval + "(date, open, high, low, close) VALUES (?, ?, ?, ?, ?) "
 			cmd += "ON CONFLICT(date) DO UPDATE SET "
-			cmd += "high=IIF(" + data["price"] + " > high, " + data["price"] + ", high), "
-			cmd += "low=IIF(" + data["price"] + " < low, " + data["price"] + ", low), "
-			cmd += "close=" + data["price"]
-			cur.execute(cmd)
+			cmd += "high=IIF(excluded.high > high, excluded.high, high), "
+			cmd += "low=IIF(excluded.low < low, excluded.low, low), "
+			cmd += "close=excluded.close"
+			cur.execute(cmd, (timestamp, price, price, price, price))
 
 		con.commit()
 		con.close()
 
 ## Gold DB things
 
-def check_n_create_gold_db():
-	pwd = os.getcwd()
-	con = sqlite3.connect(pwd + "/db/db_gold.db")
-	cur = con.cursor()
+def _gold_db():
+	return sqlite3.connect(os.path.join(os.getcwd(), "db", "db_gold.db"))
 
-	try:
-		cur.execute(f"CREATE TABLE users (tornid integer PRIMARY KEY UNIQUE, discordid integer, daysleft integer)")
-		con.commit()
-	except:
-		pass
+def check_n_create_gold_db():
+	con = _gold_db()
+	con.execute("CREATE TABLE IF NOT EXISTS users (tornid integer PRIMARY KEY UNIQUE, discordid integer, daysleft integer)")
+	con.commit()
 	con.close()
 
 def gold_user_add_user(user_id, torn_id, torn_key=""):
+	"""Add a user with their starting balance. Returns True if they were newly added."""
 	base_days = 30
 	if torn_key != "":
 		base_days += 15
 
-	pwd = os.getcwd()
-	con = sqlite3.connect(pwd + "/db/db_gold.db")
-	cur = con.cursor()
-
-	add_query = f"INSERT OR IGNORE INTO users (tornid, discordid, daysleft) VALUES ({torn_id}, {user_id}, {base_days})"
-
-def gold_user_get_balance(user_id):
-	pwd = os.getcwd()
-	con = sqlite3.connect(pwd + "/db/db_gold.db")
-	cur = con.cursor()
-
-	query = f"SELECT daysleft FROM users WHERE discordid={user_id} LIMIT 1"
-	cur.execute(query)
-	res = cur.fetchone()
-	con.close()
-	print(res[1])
-	days_left = res[1]
-	return days_left
-
-def gold_get_all_users():
-	pwd = os.getcwd()
-	con = sqlite3.connect(pwd + "/db/db_gold.db")
-	cur = con.cursor()
-
-	query = "SELECT discordid FROM users"
-	users = []
-	for row in cur.execute(query):
-		users.append(row)
-	con.close()
-
-def gold_user_change_days(user_id, n_days):
-	balance = gold_user_get_balance(user_id)
-
-	pwd = os.getcwd()
-	con = sqlite3.connect(pwd + "/db/db_gold.db")
-	cur = con.cursor()
-
-	query = f"UPDATE users SET days_left={n_days} WHERE discordid={user_id}"
-	cur.execute(query)
+	con = _gold_db()
+	cur = con.execute(
+		"INSERT OR IGNORE INTO users (tornid, discordid, daysleft) VALUES (?, ?, ?)",
+		(int(torn_id), int(user_id), base_days),
+	)
+	added = cur.rowcount > 0
 	con.commit()
 	con.close()
+	return added
+
+def gold_user_get_balance(user_id):
+	"""Days left for a Discord user, or None if they aren't registered."""
+	con = _gold_db()
+	res = con.execute("SELECT daysleft FROM users WHERE discordid = ? LIMIT 1", (int(user_id),)).fetchone()
+	con.close()
+	if res is None:
+		return None
+	return res[0]
+
+def gold_get_all_users():
+	"""All registered Discord IDs."""
+	con = _gold_db()
+	users = [row[0] for row in con.execute("SELECT discordid FROM users")]
+	con.close()
+	return users
+
+def gold_user_change_days(user_id, n_days):
+	"""Add n_days (negative to deduct) to a user's balance. Returns the new balance, or None if not registered."""
+	con = _gold_db()
+	con.execute("UPDATE users SET daysleft = daysleft + ? WHERE discordid = ?", (int(n_days), int(user_id)))
+	con.commit()
+	con.close()
+	return gold_user_get_balance(user_id)
 
 def gold_user_force_set_days(user_id, n_days):
-	pwd = os.getcwd()
-	con = sqlite3.connect(pwd + "/db/db_gold.db")
-	cur = con.cursor()
-
-	query = f"UPDATE users SET days_left={n_days} WHERE discordid={user_id}"
-	cur.execute(query)
+	con = _gold_db()
+	con.execute("UPDATE users SET daysleft = ? WHERE discordid = ?", (int(n_days), int(user_id)))
 	con.commit()
 	con.close()
