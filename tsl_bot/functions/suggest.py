@@ -37,16 +37,12 @@ def _day(ts):
 
 def _deadline(day_ts):
 	"""
-	The close of a Torn day as a fixed TCT time, then the same moment in the
-	reader's own timezone and a live countdown, e.g. for someone in UTC-7:
-	"**Fri 27/11 23:59 TCT** (27 November 2026 16:59 your time, in 6 days)".
-	Discord renders <t:...> in each viewer's local time, so the shared TCT
-	time stays as plain text. `f` (date + time) rather than `t`, since these
-	deadlines are days away. Timestamps only render in descriptions and field
-	values, not titles, names or footers.
+	The close of a Torn day (23:59:59 TCT) as a Discord timestamp, which each
+	reader sees in their own timezone. `f` (date + time) rather than `t`,
+	since these deadlines are days away. Timestamps only render in
+	descriptions and field values, not titles, names or footers.
 	"""
-	close = str(int(day_ts) + 86399)
-	return "**" + _day(day_ts) + " 23:59 TCT** (<t:" + close + ":f> your time, <t:" + close + ":R>)"
+	return "<t:" + str(int(day_ts) + 86399) + ":f>"
 
 
 def _pct(val, signed=True):
@@ -141,6 +137,13 @@ def _chance(pick, result):
 	return "**" + _pct(pick["probability"], False) + "** chance (a random stock: " + _pct(result["base_rate"], False) + ")"
 
 
+def _watchlist_note(pick):
+	"""Why a near miss isn't a pick yet; empty for real picks."""
+	if not pick.get("shortfall"):
+		return ""
+	return "\n👀 *Watchlist, not yet a pick: " + "; ".join(pick["shortfall"]) + ".*"
+
+
 def _up_value(pick, result):
 	_, live = _live_stock(pick["ticker"])
 	value = _heading_block(pick["ticker"])
@@ -149,6 +152,7 @@ def _up_value(pick, result):
 		value += "\nNow " + _money(live) + " (" + _pct(live / pick["close"] - 1) + " since the close)"
 		if live >= pick["target"]:
 			value += ", target already reached"
+	value += _watchlist_note(pick)
 	n = pick["bull_score"]
 	if n:
 		value += "\n**" + str(n) + " of " + str(len(swing.BULL_SIGNALS)) + " chart signals:** " + ", ".join(pick["signals"])
@@ -171,6 +175,7 @@ def _dip_value(pick, result):
 			value += ", ✅ already at the buy price"
 		else:
 			value += ", " + "{:.2f}".format((live / pick["buy_zone"] - 1) * 100) + "% above the buy price"
+	value += _watchlist_note(pick)
 	if pick["signals"]:
 		value += "\nSigns of a short-term drop: " + ", ".join(pick["signals"])
 	value += "\nWhy: " + ", ".join(pick["context"])
@@ -292,8 +297,7 @@ def build_picks_embed(results, ranking=False):
 				embed.add_field(name=info["icon"] + " " + info["label"] + " #" + str(i + 1) + ": " + _stock_label(pick["ticker"]), value=render(pick, result), inline=False)
 			if not result["picks"]:
 				for item in result["watchlist"]:
-					# The shortfall note replaces the zero-width spacer above the name line
-					value = "*Not a recommendation yet: " + "; ".join(item["shortfall"]) + ".*\n" + render(item, result).replace("​\n", "\n", 1)
+					value = render(item, result)
 					embed.add_field(name="👀 " + info["label"] + " watchlist: " + _stock_label(item["ticker"]), value=value, inline=False)
 		embed.add_field(name="Based on the " + _day(first["as_of"]) + " close:", value=meaning, inline=False)
 

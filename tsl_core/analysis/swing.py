@@ -470,9 +470,9 @@ def scan(horizon, direction, tickers, top_n=3, min_lift=None):
 	for r in watchlist:
 		short = []
 		if r["lift"] < min_lift:
-			short.append("chance is " + "{:.2f}".format(math.floor(r["lift"] * 100) / 100) + "× a random stock's, needs " + "{:.2f}".format(min_lift) + "×")
+			short.append("its chance is " + "{:.2f}".format(math.floor(r["lift"] * 100) / 100) + "× a random stock's, picks need " + "{:.2f}".format(min_lift) + "×")
 		if direction == "up" and r["bull_score"] < min_signals:
-			short.append("only " + str(r["bull_score"]) + " of the " + str(min_signals) + " required chart signals")
+			short.append("has " + str(r["bull_score"]) + " of the " + str(min_signals) + " chart signals picks need")
 		r["shortfall"] = short
 	shown = {id(r) for r in picks + watchlist}
 	# Pattern lookups re-read the DB, so only explain the stocks actually shown
