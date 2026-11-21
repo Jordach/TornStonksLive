@@ -177,11 +177,18 @@ def _stat_line(direction, stats):
 
 
 def _verdict(direction, result):
-	"""One plain line per section for the description: what to look at today."""
+	"""
+	One line per section naming the stocks: the picks if any qualify, otherwise
+	the nearest candidates flagged as watchlist-only. Never just "none".
+	"""
 	info = swing.DIRECTIONS[direction]
 	if result["picks"]:
-		return info["icon"] + " " + info["label"] + ": **" + ", ".join(_stock_label(p["ticker"]) for p in result["picks"]) + "**"
-	return info["icon"] + " " + info["label"] + ": no strong candidate today" + (", see the watchlist below" if result["watchlist"] else "")
+		names = ", ".join("**" + _stock_label(p["ticker"]) + "**" for p in result["picks"])
+		return info["icon"] + " " + info["label"] + ": ✅ " + names
+	if result["watchlist"]:
+		names = ", ".join("**" + _stock_label(w["ticker"]) + "**" for w in result["watchlist"])
+		return info["icon"] + " " + info["label"] + ": 👀 " + names + " *(watchlist, below the confidence bar)*"
+	return info["icon"] + " " + info["label"] + ": no candidates"
 
 
 def build_picks_embed(results, ranking=False):
@@ -201,7 +208,11 @@ def build_picks_embed(results, ranking=False):
 	else:
 		title = "📊 " + hz["label"] + " Stock Suggestions"
 
-	desc = "Based on closing prices on **" + _day(first["as_of"]) + "**.\n"
+	desc = ""
+	if not ranking:
+		# Answer first: which stocks, from which close
+		desc += "**Stocks to watch from the " + _day(first["as_of"]) + " close:**\n" + "\n".join(_verdict(d, results[d]) for d in dirs) + "\n\n"
+	desc += "*What these mean:*\n" if not ranking else "Based on closing prices on **" + _day(first["as_of"]) + "**.\n"
 	if "up" in dirs:
 		r = results["up"]
 		desc += "📈 **Upswing**: expected to rise at least " + pct + " by the close on " + _day(r["target_day"])
@@ -211,9 +222,6 @@ def build_picks_embed(results, ranking=False):
 	if "dip" in dirs:
 		r = results["dip"]
 		desc += "📉 **Buy the Dip**: expected to fall " + pct + " by " + _day(r["target_day"]) + ", then recover above the " + _day(first["as_of"]) + " close by " + _day(r["recover_day"]) + ".\n"
-	if not ranking:
-		desc += "\n**Today:**\n" + "\n".join(_verdict(d, results[d]) for d in dirs)
-
 	embed = discord.Embed(title=title, description=desc.strip())
 	embed.color = discord.Color.blue()
 	embed.set_thumbnail(url=config.stonks_png)
