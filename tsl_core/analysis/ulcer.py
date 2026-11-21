@@ -1,5 +1,7 @@
 import datetime
 import os
+import matplotlib
+matplotlib.use("Agg")  # headless; see predict.py
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 import ta

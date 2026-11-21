@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from io import BytesIO
 
@@ -7,6 +8,9 @@ import tsl_config.config as config
 from discord import app_commands
 
 client = config.client
+
+MAX_PREDICTIONS = 200
+_predict_lock = asyncio.Lock()
 
 async def ticker_autocomplete(interaction: discord.Interaction, current: str):
 	return [
@@ -33,10 +37,26 @@ async def timeframe_autocomplete(interaction: discord.Interaction, current: str)
 async def predict(interaction: discord.Interaction, ticker: str, timeframe: str, predictions: int, samples: int = 2000):
 	await interaction.response.defer()
 
+	ticker = ticker.strip().upper()
+	timeframe = timeframe.strip().lower()
+	if ticker not in tsl_lib.stock_lut or timeframe not in tsl_lib.intervals:
+		err_embed = discord.Embed(title=":no_entry_sign: Invalid Arguments :no_entry_sign:")
+		err_embed.color = discord.Color.red()
+		client.set_author_interaction(interaction, err_embed)
+		err_embed.add_field(name="Details:", value="Unknown stock or timeframe.\nSupported timeframes:\n`" + " ".join(tsl_lib.intervals) + "`")
+		await interaction.followup.send(embed=err_embed)
+		return
+
+	# Each predicted step re-runs feature engineering, so cap it to keep runtimes sane
+	predictions = max(1, min(predictions, MAX_PREDICTIONS))
+
 	graph_return = ""
 	try:
-		graph_return = tsl_lib.analysis.predict_stock(ticker.lower(), timeframe.lower(), predictions, True, config.json_data, samples)
-	except:
+		# Training is CPU heavy: run it off the event loop so the bot stays responsive,
+		# one at a time since XGBoost already uses every core.
+		async with _predict_lock:
+			graph_return = await asyncio.to_thread(tsl_lib.analysis.predict_stock, ticker.lower(), timeframe, predictions, True, config.json_data, samples)
+	except Exception:
 		tsl_lib.util.write_log("[ERROR] PREDICT ERROR: " + f"/predict {ticker} {timeframe} {predictions} {samples}", tsl_lib.util.current_date())
 		err_embed = discord.Embed(title="PREDICT ERROR:")
 		err_embed.set_thumbnail(url=config.notstonks_png)

@@ -1,5 +1,9 @@
 import os
 import datetime
+import matplotlib
+# Headless backend: graphs are rendered off the main thread, which the default
+# TkAgg backend on Windows does not support.
+matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd

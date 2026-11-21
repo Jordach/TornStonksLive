@@ -2,6 +2,8 @@ import datetime
 import os
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")  # headless; see predict.py
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from tsl_core.db import get_stock_from_db
