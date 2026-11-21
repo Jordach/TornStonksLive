@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord import app_commands
 import re
@@ -54,7 +55,8 @@ async def apikey(interaction: discord.Interaction, action: app_commands.Choice[s
 
 		# Validate the key against Torn's API
 		try:
-			api = requests.get(
+			api = await asyncio.to_thread(
+				requests.get,
 				"https://api.torn.com/user/?selections=basic&key=" + clean_key,
 				timeout=10,
 			)

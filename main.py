@@ -40,7 +40,7 @@ if perform_backfill:
 tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
 tornsy_data =""
 try:
-	tornsy_data = requests.get(tornsy_api_address)
+	tornsy_data = requests.get(tornsy_api_address, timeout=30)
 except:
 	raise Exception("Tornsy probably timed out - you likely have no network access.")
 
@@ -49,7 +49,7 @@ def get_latest_stocks():
 	current_day = tsl_lib.util.current_date()
 	global tornsy_data
 	try:
-		tornsy_data = requests.get(tornsy_api_address)
+		tornsy_data = requests.get(tornsy_api_address, timeout=20)
 	except:
 		tsl_lib.util.write_log("[WARNING] Tornsy appears to be having issues", current_day)
 		return

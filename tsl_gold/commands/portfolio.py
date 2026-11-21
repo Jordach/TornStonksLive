@@ -1,6 +1,8 @@
+import asyncio
 import discord
 from discord import app_commands
 import json
+import requests
 from datetime import datetime
 
 import tsl_core.functions as tsl_func
@@ -48,9 +50,12 @@ async def portfolio(interaction: discord.Interaction, ticker: str = None, limit:
 	await interaction.response.defer(ephemeral=True)
 
 	# Fetch portfolio from Torn
-	torn_req = tsl_func.util.get_torn_stock_data(api_key)
+	try:
+		torn_req = await asyncio.to_thread(tsl_func.util.get_torn_stock_data, api_key)
+	except requests.RequestException:
+		torn_req = None
 
-	if torn_req.status_code != 200:
+	if torn_req is None or torn_req.status_code != 200:
 		await interaction.followup.send(
 			"Torn API failed to respond in time, or has an error. Blame Ched, then try again shortly.",
 			ephemeral=True,

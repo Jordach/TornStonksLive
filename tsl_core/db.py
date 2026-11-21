@@ -14,7 +14,10 @@ def get_tornsy_candles(ticker, interval, limit, to="NONE"):
 	if to != "NONE":
 		ohlc_address = ohlc_address + "&to=" + str(to)
 	
-	ohlc_req = requests.get(ohlc_address)
+	try:
+		ohlc_req = requests.get(ohlc_address, timeout=30)
+	except requests.RequestException:
+		return False
 	if ohlc_req.status_code == 200:
 		ohlc_data = json.loads(ohlc_req.text)
 		return ohlc_data

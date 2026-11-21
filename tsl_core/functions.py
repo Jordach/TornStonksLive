@@ -76,7 +76,7 @@ class util:
 		else:
 			return val
 	def get_torn_stock_data(api_key):
-		return requests.get("https://api.torn.com/user/?selections=stocks&key=" + api_key)
+		return requests.get("https://api.torn.com/user/?selections=stocks&key=" + api_key, timeout=10)
 
 	def lut_stock_id(name):
 		global stock_lut
