@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 import importlib
@@ -15,11 +16,13 @@ config.read_token()
 config.read_admins()
 config.read_user_alerts()
 config.read_alerts()
-config.read_channels()
 config.read_suggestions()
 config.read_features()
 
 current_day = tsl_lib.util.current_date()
+
+# Per-stock price databases live here; a fresh install doesn't have it yet
+os.makedirs("db", exist_ok=True)
 
 # Back fill the DBs with data: fetches Tornsy's recent minutes for each stock and
 # writes only those newer than what's already stored. Longer gaps in daily

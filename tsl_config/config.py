@@ -17,7 +17,6 @@ auto_userdata = {"id":[], "type":[], "stock":[], "timescale":[], "mute":[], "par
 # Note that params 1-5 are for read/write; memory, delay is during bot operation only.
 
 alert_channels = {"id":[], "small":[], "medium":[], "large":[], "tiny":[]}
-command_channels = {"id":[], "prefix":[], "predict":[]}
 suggestion_channels = {"id":[]}
 bot_admins = []
 client = ""
@@ -162,30 +161,6 @@ def read_features():
 		"[INFO] Features: " + ", ".join(name + "=" + ("on" if on else "off") for name, on in features.items()),
 		tsl_lib.util.current_date(),
 	)
-
-# DEPRECATED NOTICE:
-# Will be replaced by slash commands soon
-def read_channels():
-	global command_channels
-	with open("command_channels.conf", "r") as channel_config:
-		lines = channel_config.readlines()
-		for line in lines:
-			# Handle comments 
-			if line.strip().startswith("#"):
-				continue
-
-			data = line.strip().split(",")
-			if len(data) == 3:
-				command_channels["id"].append(int(data[0]))
-				command_channels["prefix"].append(str(data[1]))
-				command_channels["predict"].append(str(data[2]))
-			else:
-				tsl_lib.util.write_log("[WARNING] command_channels.conf has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
-
-	if len(command_channels["id"]) == 0:
-		with open("command_channels.conf", "w") as file:
-			file.write("")
-		raise Exception("No channels to send/receive commands to - command_channels.conf created.")
 
 # DEPRECATED NOTICE:
 # Will be converted to a singular Discord server and channel only for easier customised installation
