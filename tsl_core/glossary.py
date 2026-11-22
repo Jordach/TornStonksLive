@@ -15,11 +15,13 @@ Candle-pattern entries mirror the pattern lists in tsl_core/analysis/search.py
 To add a term, append an entry to ENTRIES: key (unique, lowercase), title,
 category (one of CATEGORIES), aliases (extra search words), body (plain
 language, Discord markdown allowed, under ~900 characters) and related (keys).
+A long entry can give body as a list of pages (each under ~2000 characters);
+/glossary shows one embed per page and splits them over several messages.
 """
 import difflib
 
 CATEGORIES = [
-	"Commands", "Suggestions", "Chart signals", "Drop signs", "Indicators",
+	"Trader's guide", "Commands", "Suggestions", "Chart signals", "Drop signs", "Indicators",
 	"Bullish candles", "Bearish candles", "Two-way candles", "Other",
 ]
 # Hit rates and backtest figures quoted below were measured in Nov 2026;
@@ -39,6 +41,203 @@ def _candle(key, title, category, aliases, looks, means, related=None):
 _BULL, _BEAR, _TWO = "Bullish candles", "Bearish candles", "Two-way candles"
 
 ENTRIES = [
+	# ── Trader's guide (multi-page: body is a list, one embed per page) ──
+	# Figures measured from the bot's price history in Nov 2026 (Apr 2021 - Nov 2026,
+	# 35 stocks; minute figures from the past year). Refresh by hand if they drift.
+	{
+		"key": "guide", "title": "New trader's guide: start here", "category": "Trader's guide",
+		"aliases": ["new trader", "beginner", "beginners guide", "start here", "how stocks work", "basics",
+			"trader's guide", "benefit block", "new player"],
+		"body": [
+			"Torn's stock market is one of the steadier ways to grow money in the game. This guide covers how "
+			"it works, why patient traders rarely lose big, and how the bot can help.\n\n"
+			"**The basics**\n"
+			"• There are 35 stocks plus the TCSE index, each with a ticker such as `IOU` or `SYM`.\n"
+			"• You buy and sell instantly at the current price. There's no order book and no waiting for "
+			"another player to take the other side.\n"
+			"• Prices update every minute, around the clock, every day of the week.\n"
+			"• Selling costs **0.1%** of the sale.\n"
+			"• Holding enough shares of a stock earns its **benefit block**. The number of shares needed and "
+			"the reward differ per stock; check the stock's page in Torn.\n"
+			"• Times are in TCT (Torn City Time, the same as UTC).",
+
+			"**Chapters** (search any of them in `/glossary`)\n"
+			"1. **Why Torn stocks are resilient**: the short version\n"
+			"2. **Composite pricing**: where prices come from\n"
+			"3. **Baseline minimum price**: the floor under every stock\n"
+			"4. **Per-minute noise**: why the minute chart jitters\n"
+			"5. **Trading with resilience in mind**: what to do, and what not to\n"
+			"6. **Using the bot as a new trader**: a simple routine\n\n"
+			"Figures in this guide come from the bot's own price history (April 2021 to November 2026, 35 "
+			"stocks). Past behaviour is a guide, not a promise.",
+		],
+		"related": ["resilience", "composite pricing", "minimum price", "per-minute noise",
+			"trading with resilience", "bot routine"],
+	},
+	{
+		"key": "resilience", "title": "Why Torn stocks are resilient", "category": "Trader's guide",
+		"aliases": ["resilient", "safe", "safety", "risk", "crash", "why stocks are safe"],
+		"body": [
+			"Real shares can lose most of their value overnight when a company fails. Torn stocks are built "
+			"differently, and three parts of the design keep them steady:\n\n"
+			"• **Composite pricing**: each price is blended from real-world stocks in the same industry, so no "
+			"single company, and no single player, can sink it.\n"
+			"• **Baseline minimum price**: every stock has a floor it won't fall through, so a price can't "
+			"spiral towards zero.\n"
+			"• **Per-minute noise**: small random moves every minute disguise which real stocks a price "
+			"follows, so nobody can copy a real exchange and trade ahead of everyone else.\n\n"
+			"Torn doesn't publish the details. Its own guidance is that prices follow real-world stocks in the "
+			"same industries and should rise about 10% a year on average, with no guarantees.",
+
+			"**What the price history shows**\n"
+			"• Every stock is worth more today than when the bot started tracking it. The typical gain is "
+			"**6.6% a year**, from 0.3% (SYM) to 13.8% (TCP).\n"
+			"• The deepest any stock has ever fallen from a high is **29.5%**; a typical stock's worst fall "
+			"is about 16%.\n"
+			"• Of 338 times a stock fell 10% below a high, **88%** later climbed back to it, typically within "
+			"about 7 months.\n"
+			"• 29 of the 35 all-time lows were set in 2021, and no stock has set a new all-time low since "
+			"April 2023.\n"
+			"• Stocks barely move together, so there has never been a market-wide crash.\n\n"
+			"Resilient isn't risk-free: see *Trading with resilience in mind*.",
+		],
+		"related": ["composite pricing", "minimum price", "per-minute noise", "trading with resilience", "guide"],
+	},
+	{
+		"key": "composite pricing", "title": "Composite pricing", "category": "Trader's guide",
+		"aliases": ["composite", "how prices work", "price source", "real world stocks", "industry",
+			"manipulation", "pump and dump"],
+		"body": [
+			"**What it is**\n"
+			"A Torn stock isn't a real company with its own share price. Torn says each stock's movement is "
+			"based on real-world stocks in the same industry, blended into one price, so no single company "
+			"decides it.\n\n"
+			"**Why it makes stocks resilient**\n"
+			"• **Spread risk.** If one company in the mix crashes, it's only part of the blend, so the Torn "
+			"price dips rather than collapses. A typical Torn stock moves about 0.7% a day.\n"
+			"• **No company risk.** There are no earnings misses, scandals or bankruptcies in Torn to wipe a "
+			"stock out.\n"
+			"• **Players don't set the price.** Trades happen instantly at the current price rather than "
+			"through an order book, so the price follows its sources, not buying and selling in Torn. A big "
+			"holder selling up can't start a crash, and a group can't pump a stock and dump it on latecomers.",
+
+			"**What it means for you**\n"
+			"• A blend softens shocks; it doesn't stop trends. An industry having a bad few months can still "
+			"carry a stock down for a while.\n"
+			"• Each stock follows its own sources, so stocks barely move together. Across the whole history "
+			"the typical correlation between two stocks' daily moves is **0.00**, and the closest pair is only "
+			"0.13. Holding several stocks spreads your risk well.\n"
+			"• News about one real-world company tells you little about a Torn stock.",
+		],
+		"related": ["resilience", "minimum price", "per-minute noise"],
+	},
+	{
+		"key": "minimum price", "title": "Baseline minimum price", "category": "Trader's guide",
+		"aliases": ["floor", "price floor", "baseline", "minimum", "all-time low", "bottom", "zero"],
+		"body": [
+			"**What it is**\n"
+			"Each stock has a baseline price underneath it that it isn't allowed to fall through. Torn doesn't "
+			"publish the levels, but the floor means a Torn stock can't go the way of a bankrupt company and "
+			"drift towards zero.\n\n"
+			"**Why it makes stocks resilient**\n"
+			"• **Losses are capped.** However bad a run gets, a price can only fall so far, and the further it "
+			"falls the less room is left below.\n"
+			"• **Lows hold.** 29 of the 35 all-time lows date from 2021, the first months of the current "
+			"market, and no stock has set a new all-time low since April 2023.\n"
+			"• **Falls are shallow.** The deepest drop any stock has had from a high is 29.5% (SYM); no stock "
+			"has ever fallen 30%.",
+
+			"**What it means for you**\n"
+			"• A stock well below its recent high has historically been worth a look rather than a trap: of "
+			"338 falls of 10%, 88% later regained the old high.\n"
+			"• The floor protects against collapse, not against slow years. Some stocks have barely grown "
+			"(SYM 0.3% a year, EWM 1.5%).\n"
+			"• Deeper falls recover slowly. Of 81 falls of 20%, only 37% have regained their high so far, "
+			"and those took around two years.\n"
+			"• The floor levels aren't published, so use `/overview mode:Near Recent Lows` and the Buy the Dip "
+			"picks to spot stocks near the bottom of their range.",
+		],
+		"related": ["resilience", "composite pricing", "buy the dip", "/overview"],
+	},
+	{
+		"key": "per-minute noise", "title": "Per-minute noise", "category": "Trader's guide",
+		"aliases": ["noise", "minute noise", "jitter", "random", "obfuscation", "minute chart", "m1 chart"],
+		"body": [
+			"**What it is**\n"
+			"On top of its real-world sources, every price gets small random moves each minute. If Torn prices "
+			"simply copied real shares, anyone watching the right exchange could see moves coming and trade "
+			"ahead of everyone else. The noise, together with the blending, hides which real stocks a price "
+			"follows.\n\n"
+			"**What the price history shows**\n"
+			"• A typical minute moves about **0.006%**, roughly 2 cents on a $300 stock, and about 1 minute in "
+			"5 doesn't change at all.\n"
+			"• When the price does move, the next minute goes the other way 43% of the time; the jitter partly "
+			"undoes itself.\n"
+			"• Prices move just as much at weekends and outside US trading hours as during them, while real "
+			"markets are shut. The minute-by-minute movement isn't a live copy of any exchange.",
+
+			"**Why it makes stocks resilient**\n"
+			"• **No insider edge.** Nobody can read Torn's next move off a real exchange, so no group can "
+			"steadily drain money from everyone else.\n"
+			"• **Nothing to target.** Blended, disguised sources leave no single real price to watch or "
+			"exploit.\n\n"
+			"**What it means for you**\n"
+			"• Don't make decisions from the minute chart. Minute moves are mostly noise, and over a day they "
+			"add up to little more than a random walk.\n"
+			"• Trading minute moves can't pay: the 0.1% selling fee is about 17 typical minute moves, so a "
+			"trade has to gain that much just to break even.\n"
+			"• Use hourly or daily candles (`h1` to `d1`) with `/search` and `/overview`. The bot's picks use "
+			"daily closes for the same reason.",
+		],
+		"related": ["resilience", "composite pricing", "timeframes", "/search"],
+	},
+	{
+		"key": "trading with resilience", "title": "Trading with resilience in mind", "category": "Trader's guide",
+		"aliases": ["tips", "do and don't", "dos and donts", "strategy", "panic sell", "hold", "long term"],
+		"body": [
+			"**Do**\n"
+			"• **Think in weeks and months, not minutes.** The steady upward drift (6.6% a year typically) "
+			"rewards holding.\n"
+			"• **Buy weakness, not strength.** Falls have usually recovered, so a stock below its recent high "
+			"is often better value than one that has just spiked.\n"
+			"• **Spread your money** over several stocks; they rarely fall together.\n"
+			"• **Hold benefit blocks** where you can, so you earn the benefit while you wait for prices to move.\n"
+			"• **Let the bot watch for you**: `/alert` for target prices, `/paper` to check a trade before "
+			"making it.",
+
+			"**Don't**\n"
+			"• **Panic-sell a dip.** Selling locks in the loss and costs 0.1%, and most dips have come back.\n"
+			"• **Chase a spike.** Buying right after a sharp rise often means buying a short-term high.\n"
+			"• **Trade the minute chart.** The noise is bigger than any pattern, and the fee eats small gains.\n"
+			"• **Treat it as free money.** Resilient isn't risk-free:\n"
+			"  – Recoveries can take months, and around two years after a 20% fall.\n"
+			"  – Money in a slow stock misses gains elsewhere (SYM has grown 0.3% a year).\n"
+			"  – Typical growth (6.6% a year) has been below Torn's 10% expectation.\n"
+			"  – Torn can change how the market works, as it did when it relaunched it in 2021.",
+		],
+		"related": ["resilience", "minimum price", "per-minute noise", "bot routine", "buy the dip"],
+	},
+	{
+		"key": "bot routine", "title": "Using the bot as a new trader", "category": "Trader's guide",
+		"aliases": ["routine", "workflow", "getting started", "how to use the bot", "first steps"],
+		"body": [
+			"A simple routine:\n\n"
+			"1. **Check the picks.** `/suggest` shows today's Upswing and Buy the Dip picks with the reasons "
+			"behind them; the watchlist shows what's nearly there.\n"
+			"2. **Look closer.** `/stock` for a stock's price and investors over time, `/search` on `d1` for "
+			"chart signals, `/overview mode:Near Recent Lows` for stocks near the bottom of their range.\n"
+			"3. **Plan the trade.** `/paper buy` shows how many shares your cash buys; `/paper sell` what "
+			"you'd get back after the fee.\n"
+			"4. **Let the bot watch.** `/alert` DMs you at a target price, and *Loss* alerts work as stop-loss "
+			"reminders. `/notifications` lists them.\n"
+			"5. **Track how you're doing.** Save your Torn API key with `/apikey`, then `/portfolio` shows how "
+			"each purchase is doing.\n"
+			"6. **Learn as you go.** Any term you don't recognise is in `/glossary`.\n\n"
+			"The bot gives information, not financial advice. Even Torn money is yours to risk.",
+		],
+		"related": ["guide", "/suggest", "/alert", "/paper", "/portfolio"],
+	},
+
 	# ── Commands ────────────────────────────────────────────────
 	{
 		"key": "/stock", "title": "/stock: price, shares and investors", "category": "Commands",
@@ -151,7 +350,7 @@ ENTRIES = [
 	},
 	{
 		"key": "/glossary", "title": "/glossary: this guidebook", "category": "Commands",
-		"aliases": ["glossary", "help", "guide", "commands", "what does"],
+		"aliases": ["glossary", "help", "guidebook", "commands", "what does"],
 		"body": "Search the bot's commands and terms. Start typing in `term:` and pick from the list; partial "
 			"words work (e.g. `boll`, `hammer`, `alert`). Leave it blank to list everything.",
 		"related": ["/suggest", "/search", "chart signals"],

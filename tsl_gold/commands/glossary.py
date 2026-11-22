@@ -15,19 +15,49 @@ async def term_autocomplete(interaction: discord.Interaction, current: str):
 	]
 
 
-def _entry_embed(entry):
-	embed = discord.Embed(title="📖 " + entry["title"], description=entry["body"])
-	embed.color = discord.Color.teal()
+# Discord allows 10 embeds and 6000 characters per message; stay a little under
+MAX_EMBEDS_PER_MESSAGE = 10
+MAX_CHARS_PER_MESSAGE = 5500
+
+
+def _entry_embeds(entry):
+	"""One embed per page; a plain string body is a single page."""
+	pages = entry["body"] if isinstance(entry["body"], list) else [entry["body"]]
+	embeds = []
+	for n, page in enumerate(pages, 1):
+		title = "📖 " + entry["title"]
+		if len(pages) > 1:
+			title += " (" + str(n) + "/" + str(len(pages)) + ")"
+		embed = discord.Embed(title=title, description=page)
+		embed.color = discord.Color.teal()
+		embeds.append(embed)
+	# Search words and related entries go at the end, after the last page
+	last = embeds[-1]
 	if entry["aliases"]:
-		embed.add_field(name="Also searchable as:", value=", ".join(entry["aliases"]), inline=False)
+		last.add_field(name="Also searchable as:", value=", ".join(entry["aliases"]), inline=False)
 	related = [glossary.get(k) for k in entry["related"] if glossary.get(k)]
 	if related:
-		embed.add_field(name="Related:", value=" · ".join(r["title"] for r in related), inline=False)
-	return embed
+		last.add_field(name="Related:", value=" · ".join(r["title"] for r in related), inline=False)
+	return embeds
+
+
+def _batches(embeds):
+	"""Group embeds into messages that fit Discord's per-message limits."""
+	batches, current, size = [], [], 0
+	for embed in embeds:
+		n = len(embed)
+		if current and (len(current) >= MAX_EMBEDS_PER_MESSAGE or size + n > MAX_CHARS_PER_MESSAGE):
+			batches.append(current)
+			current, size = [], 0
+		current.append(embed)
+		size += n
+	if current:
+		batches.append(current)
+	return batches
 
 
 def _index_embed():
-	embed = discord.Embed(title="📖 Glossary", description="Commands, chart signals, candle patterns and more. Start typing in `/glossary term:` to search; partial words work (e.g. `alert`, `boll`, `hammer`, `dip`).")
+	embed = discord.Embed(title="📖 Glossary", description="New to trading? Start with **New trader's guide: start here**.\n\nCommands, chart signals, candle patterns and more. Start typing in `/glossary term:` to search; partial words work (e.g. `alert`, `boll`, `hammer`, `dip`).")
 	embed.color = discord.Color.teal()
 	for category in glossary.CATEGORIES:
 		titles = [e["title"] for e in glossary.ENTRIES if e["category"] == category]
@@ -42,6 +72,7 @@ def _index_embed():
 async def glossary_cmd(interaction: discord.Interaction, term: str = ""):
 	await interaction.response.defer(ephemeral=True)
 
+	embeds = None
 	if not term.strip():
 		embed = _index_embed()
 	else:
@@ -49,7 +80,8 @@ async def glossary_cmd(interaction: discord.Interaction, term: str = ""):
 		entry = glossary.get(term)
 		matches = [entry] if entry else glossary.search(term, limit=10)
 		if len(matches) == 1:
-			embed = _entry_embed(matches[0])
+			embeds = _entry_embeds(matches[0])
+			embed = embeds[0]
 		elif matches:
 			embed = discord.Embed(title="📖 Several matches for \"" + term[:50] + "\"", description="\n".join("• " + e["title"] for e in matches))
 			embed.color = discord.Color.teal()
@@ -61,4 +93,6 @@ async def glossary_cmd(interaction: discord.Interaction, term: str = ""):
 			embed.description = ("Did you mean:\n" + "\n".join("• " + e["title"] for e in close)) if close else "Leave the term blank to list everything."
 
 	client.set_author_interaction(interaction, embed)
-	await interaction.followup.send(embed=embed, ephemeral=True)
+	# Long guide entries continue over several messages, each within Discord's limits
+	for batch in _batches(embeds or [embed]):
+		await interaction.followup.send(embeds=batch, ephemeral=True)
