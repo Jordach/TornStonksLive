@@ -361,6 +361,12 @@ ENTRIES = [
 		"related": ["/suggest", "/search", "chart signals"],
 	},
 	{
+		"key": "/credits", "title": "/credits: thanks", "category": "Commands",
+		"aliases": ["credits", "thanks", "donors", "contributors"],
+		"body": "Lists the people who have helped TornStonks Live along the way: testers, bug finders and donors.",
+		"related": ["/glossary"],
+	},
+	{
 		"key": "admin commands", "title": "Admin commands", "category": "Commands",
 		"aliases": ["admin", "stop", "sync", "force_suggestions", "force suggestions"],
 		"body": "Only bot admins can use these.\n\n"

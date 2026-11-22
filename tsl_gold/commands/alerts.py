@@ -97,7 +97,7 @@ async def _alert_error(interaction: discord.Interaction, details: str):
 	await interaction.followup.send(embed=err_embed, ephemeral=True)
 
 
-@client.tree.command(name="notifications", description="Lists your pending notifcations.")
+@client.tree.command(name="notifications", description="Lists your pending notifications.")
 @app_commands.describe(
 	mode="Type of Alert (Up, Down, Loss, All)",
 	ticker="Optional: only show alerts for this stock (IOU, SYM, ...)"
