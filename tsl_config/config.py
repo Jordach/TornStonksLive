@@ -22,10 +22,22 @@ suggestion_channels = {"id":[]}
 bot_admins = []
 client = ""
 
-json_data = ""
+# Live Tornsy feed; starts empty so commands see "no stocks yet" rather than
+# crashing if the first fetch fails (the every-minute update fills it in)
+json_data = {"data": []}
 
-# Scheduled daily/weekly swing suggestions (see tsl_core/analysis/swing.py)
-enable_suggestions = False
+# Feature switches, read from features.conf by read_features()
+FEATURES_PATH = "features.conf"
+FEATURE_DEFAULTS = {
+	# Scheduled daily/weekly swing suggestion posts (see tsl_core/analysis/swing.py)
+	"suggestions": False,
+	# Volatility posts to the alert channels
+	"volatility": False,
+	# Download any missing price history from Tornsy at startup
+	"backfill": True,
+}
+features = dict(FEATURE_DEFAULTS)
+enable_suggestions = features["suggestions"]
 
 intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 
@@ -120,6 +132,36 @@ def read_token():
 		# (Previously opened the file read-only and wrote to it, which raised
 		# io.UnsupportedOperation instead of this message.)
 		raise Exception("Bot token is missing - put it on the first line of settings.conf")
+
+_TRUE_WORDS = {"true", "yes", "on", "1"}
+_FALSE_WORDS = {"false", "no", "off", "0"}
+
+def read_features():
+	"""Load feature switches (name=true/false per line) from features.conf, creating it with defaults if missing."""
+	global enable_suggestions
+	if not os.path.exists(FEATURES_PATH):
+		with open(FEATURES_PATH, "w") as file:
+			file.write("# TornStonks Live feature switches: name=true or name=false, one per line.\n")
+			for name, value in FEATURE_DEFAULTS.items():
+				file.write(name + "=" + ("true" if value else "false") + "\n")
+		tsl_lib.util.write_log("[INFO] Created " + FEATURES_PATH + " with default feature switches.", tsl_lib.util.current_date())
+	else:
+		with open(FEATURES_PATH, "r") as file:
+			for line in file:
+				line = line.strip()
+				if line == "" or line.startswith("#"):
+					continue
+				name, sep, value = line.partition("=")
+				name, value = name.strip().lower(), value.strip().lower()
+				if not sep or name not in FEATURE_DEFAULTS or value not in _TRUE_WORDS | _FALSE_WORDS:
+					tsl_lib.util.write_log("[WARNING] " + FEATURES_PATH + ": ignoring unrecognised line: " + line, tsl_lib.util.current_date())
+					continue
+				features[name] = value in _TRUE_WORDS
+	enable_suggestions = features["suggestions"]
+	tsl_lib.util.write_log(
+		"[INFO] Features: " + ", ".join(name + "=" + ("on" if on else "off") for name, on in features.items()),
+		tsl_lib.util.current_date(),
+	)
 
 # DEPRECATED NOTICE:
 # Will be replaced by slash commands soon

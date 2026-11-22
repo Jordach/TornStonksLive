@@ -129,9 +129,25 @@ def fill_daily_gaps_from_tornsy(ticker, limit=2000, timeout=10):
 	finally:
 		con.close()
 
+def _last_stored_m1(path):
+	"""Newest m1 timestamp already in a stock's DB, or None for a new/empty DB."""
+	if not os.path.exists(path):
+		return None
+	con = sqlite3.connect(path)
+	try:
+		return con.execute("SELECT MAX(date) FROM m1").fetchone()[0]
+	except sqlite3.OperationalError:
+		return None
+	finally:
+		con.close()
+
 def import_from_tornsy(ticker, intervals, limit=-1):
 	pwd = os.getcwd()
 	name = ticker.lower()
+
+	# Only fetch minutes from the newest one already stored onwards (that minute is
+	# re-fetched so a candle that was still forming gets its final values)
+	last_m1 = _last_stored_m1(pwd + "/db/db_" + name + ".db")
 
 	ohlc_data = get_tornsy_candles(ticker, "m1", "2000")
 	if not ohlc_data:
@@ -143,9 +159,10 @@ def import_from_tornsy(ticker, intervals, limit=-1):
 	dt = {"date":[], "Open":[], "High":[], "Low":[], "Close":[]}
 
 	# Only grab previous entries if there are exactly 1440 m1 entries corresponding to one day.
-	# Or limit >= 1
+	# Or limit >= 1. No need to page back if this page already reaches stored data.
 	max_items = 1440
-	if len(ohlc_data["data"]) == max_items and limit > 0:
+	reaches_stored = last_m1 is not None and len(ohlc_data["data"]) > 0 and int(ohlc_data["data"][0][0]) <= last_m1
+	if len(ohlc_data["data"]) == max_items and limit > 0 and not reaches_stored:
 		cdate = str(ohlc_data["data"][0][0])
 		ohlcs = []
 		
@@ -158,9 +175,11 @@ def import_from_tornsy(ticker, intervals, limit=-1):
 
 			cdate = str(ohlc["data"][0][0])
 			ohlcs.insert(0, ohlc)
-			# Don't grab another set because Tornsy lacks history
-			# or if we hit the cap on importing data
+			# Don't grab another set because Tornsy lacks history,
+			# we've reached minutes already stored, or we hit the import cap
 			if len(ohlc["data"]) < max_items or lim == limit:
+				break
+			if last_m1 is not None and int(ohlc["data"][0][0]) <= last_m1:
 				break
 			lim += 1
 			time.sleep(0.05)
@@ -181,14 +200,18 @@ def import_from_tornsy(ticker, intervals, limit=-1):
 		dt["Low"].append((item[1]))
 		dt["Close"].append((item[1]))
 
+	# Minutes older than the newest stored one are already in every table
+	if last_m1 is not None:
+		keep = [i for i, d in enumerate(dt["date"]) if int(d) >= last_m1]
+		for key in dt:
+			dt[key] = [dt[key][i] for i in keep]
+
+	for interval in intervals:
+		cur.execute("CREATE TABLE IF NOT EXISTS " + interval + " (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
+	con.commit()
+
 	for i in range(len(dt["date"])):
 		for interval in intervals:
-			try:
-				cur.execute("CREATE TABLE " + interval + " (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
-				con.commit()
-			except:
-				pass
-
 			timestamp = 0
 			dt_time = int(dt["date"][i])
 			if interval == "m5":
