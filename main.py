@@ -11,17 +11,12 @@ import tsl_config.config as config
 import tsl_core.functions as tsl_lib
 import tsl_bot.bot as tsl_bot
 
-enable_tsl_gold = True
-
 config.read_token()
 config.read_admins()
 config.read_user_alerts()
 config.read_alerts()
 config.read_channels()
 config.read_suggestions()
-
-if enable_tsl_gold:
-	config.read_torn_api_keys()
 
 current_day = tsl_lib.util.current_date()
 

@@ -280,63 +280,6 @@ def update_from_tornsy(json_data, intervals):
 		con.commit()
 		con.close()
 
-## Gold DB things
-
-def _gold_db():
-	return sqlite3.connect(os.path.join(os.getcwd(), "db", "db_gold.db"))
-
-def check_n_create_gold_db():
-	con = _gold_db()
-	con.execute("CREATE TABLE IF NOT EXISTS users (tornid integer PRIMARY KEY UNIQUE, discordid integer, daysleft integer)")
-	con.commit()
-	con.close()
-
-def gold_user_add_user(user_id, torn_id, torn_key=""):
-	"""Add a user with their starting balance. Returns True if they were newly added."""
-	base_days = 30
-	if torn_key != "":
-		base_days += 15
-
-	con = _gold_db()
-	cur = con.execute(
-		"INSERT OR IGNORE INTO users (tornid, discordid, daysleft) VALUES (?, ?, ?)",
-		(int(torn_id), int(user_id), base_days),
-	)
-	added = cur.rowcount > 0
-	con.commit()
-	con.close()
-	return added
-
-def gold_user_get_balance(user_id):
-	"""Days left for a Discord user, or None if they aren't registered."""
-	con = _gold_db()
-	res = con.execute("SELECT daysleft FROM users WHERE discordid = ? LIMIT 1", (int(user_id),)).fetchone()
-	con.close()
-	if res is None:
-		return None
-	return res[0]
-
-def gold_get_all_users():
-	"""All registered Discord IDs."""
-	con = _gold_db()
-	users = [row[0] for row in con.execute("SELECT discordid FROM users")]
-	con.close()
-	return users
-
-def gold_user_change_days(user_id, n_days):
-	"""Add n_days (negative to deduct) to a user's balance. Returns the new balance, or None if not registered."""
-	con = _gold_db()
-	con.execute("UPDATE users SET daysleft = daysleft + ? WHERE discordid = ?", (int(n_days), int(user_id)))
-	con.commit()
-	con.close()
-	return gold_user_get_balance(user_id)
-
-def gold_user_force_set_days(user_id, n_days):
-	con = _gold_db()
-	con.execute("UPDATE users SET daysleft = ? WHERE discordid = ?", (int(n_days), int(user_id)))
-	con.commit()
-	con.close()
-
 ## Suggestion tracking
 
 _SUGGESTION_SCHEMA = (

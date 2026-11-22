@@ -20,20 +20,14 @@ alert_channels = {"id":[], "small":[], "medium":[], "large":[], "tiny":[]}
 command_channels = {"id":[], "prefix":[], "predict":[]}
 suggestion_channels = {"id":[]}
 bot_admins = []
-verification_keys = []
-event_key = ""
 client = ""
 
 json_data = ""
 
-gold_daily = ""
-gold_weekly = ""
-gold_monthly = ""
-
 # Scheduled daily/weekly swing suggestions (see tsl_core/analysis/swing.py)
 enable_suggestions = False
 
-intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True, message_content=True)
+intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 
 # SQLite implementation
 import sqlite3
@@ -341,107 +335,6 @@ def write_user_alerts(snapshot=None):
 		conn.commit()
 		conn.close()
 		_user_alerts_written_generation = generation
-
-# Migrates from verify_api_keys.conf and event_key.conf on first run.
-# Schema supports (discord_id, encrypted_key) pairs for future per-user storage.
-# Legacy keys are stored under discord_id = "_legacy_" until associated with a user.
-def read_torn_api_keys():
-	global verification_keys
-	global event_key
-	conn = _get_db_connection()
-	cur = conn.cursor()
-
-	# --- Try loading from SQLite first ---
-	cur.execute("SELECT encrypted_key FROM api_keys")
-	rows = cur.fetchall()
-
-	cur.execute("SELECT encrypted_key FROM event_keys WHERE key_name = ?", ("event_key",))
-	ev_row = cur.fetchone()
-
-	if len(rows) > 0 or ev_row is not None:
-		# Decrypt verification keys
-		for row in rows:
-			try:
-				verification_keys.append(_decrypt(row[0]))
-			except Exception:
-				tsl_lib.util.write_log("[WARNING] Failed to decrypt an API key – skipping.", tsl_lib.util.current_date())
-
-		# Decrypt event key
-		if ev_row is not None:
-			try:
-				event_key = _decrypt(ev_row[0])
-			except Exception:
-				tsl_lib.util.write_log("[WARNING] Failed to decrypt event key.", tsl_lib.util.current_date())
-
-		conn.close()
-
-		if len(verification_keys) == 0:
-			raise Exception("API keys table exists in SQLite but all keys failed to decrypt.")
-		if event_key == "":
-			raise Exception("Event key failed to decrypt or is missing from SQLite.")
-
-		tsl_lib.util.write_log(
-			"[INFO] Loaded " + str(len(verification_keys)) + " API key(s) + event key from SQLite (encrypted).",
-			tsl_lib.util.current_date(),
-		)
-		return
-
-	conn.close()
-
-	# --- Fall back to legacy .conf files and migrate ---
-	# Verification keys
-	legacy_keys_path = "verify_api_keys.conf"
-	if os.path.exists(legacy_keys_path):
-		with open(legacy_keys_path, "r") as verify_file:
-			lines = verify_file.readlines()
-			for line in lines:
-				if line.strip().startswith("#") or line.strip() == "":
-					continue
-				verification_keys.append(line.strip())
-	else:
-		with open(legacy_keys_path, "w") as file:
-			file.write("# Torn API keys go in here.")
-		raise Exception("No API keys file for verifying users for TornStonks Gold module was found - verify_api_keys.conf created.")
-
-	if len(verification_keys) == 0:
-		raise Exception("verify_api_keys.conf contains no API keys.")
-
-	# Event key
-	legacy_event_path = "event_key.conf"
-	if os.path.exists(legacy_event_path):
-		with open(legacy_event_path, "r") as event_lines:
-			lines = event_lines.readlines()
-			for line in lines:
-				if line.strip().startswith("#") or line.strip() == "":
-					continue
-				else:
-					event_key = line.strip()
-					break
-		if event_key == "":
-			raise Exception("API key missing in event_key.conf.")
-	else:
-		with open(legacy_event_path, "w") as file:
-			file.write("# Limited access or full access API key goes here.")
-		raise Exception("No API key file was found for verifying payment for TornStonks Gold module was found - event_key.conf created.")
-
-	# --- Migrate everything into SQLite (encrypted) ---
-	conn = _get_db_connection()
-	cur = conn.cursor()
-	for key in verification_keys:
-		cur.execute(
-			"INSERT OR IGNORE INTO api_keys (discord_id, encrypted_key) VALUES (?, ?)",
-			("_legacy_", _encrypt(key)),
-		)
-	cur.execute(
-		"INSERT OR REPLACE INTO event_keys (key_name, encrypted_key) VALUES (?, ?)",
-		("event_key", _encrypt(event_key)),
-	)
-	conn.commit()
-	conn.close()
-	tsl_lib.util.write_log(
-		"[MIGRATION] Migrated " + str(len(verification_keys)) + " API key(s) + event key from .conf -> SQLite (encrypted).",
-		tsl_lib.util.current_date(),
-	)
 
 def save_user_key(discord_id: str, api_key: str):
 	"""Store (or replace) a user's personal Torn API key, encrypted."""
