@@ -17,14 +17,14 @@ BULLISH_PATTERNS = [
 	(talib.CDLMORNINGSTAR,      "Morningstar"),
 	(talib.CDL3WHITESOLDIERS,   "Three White Soldiers"),
 	(talib.CDLMORNINGDOJISTAR,  "Morning Doji Star"),
-	(talib.CDLBREAKAWAY,        "Breakaway"),
+	(talib.CDLBREAKAWAY,        "Bullish Breakaway"),
 	(talib.CDLMATHOLD,          "Mat Hold"),
 	(talib.CDLHOMINGPIGEON,     "Homing Pigeon"),
 	(talib.CDLUNIQUE3RIVER,     "Unique Three River"),
-	(talib.CDLKICKING,          "Kicking"),
+	(talib.CDLKICKING,          "Bullish Kicking"),
 	(talib.CDLLADDERBOTTOM,     "Ladder Bottom"),
-	(talib.CDLABANDONEDBABY,    "Abandoned Baby"),
-	(talib.CDLTRISTAR,          "Tri-Star"),
+	(talib.CDLABANDONEDBABY,    "Bullish Abandoned Baby"),
+	(talib.CDLTRISTAR,          "Bullish Tri-Star"),
 	(talib.CDLSTICKSANDWICH,    "Stick Sandwich"),
 	(talib.CDL3STARSINSOUTH,    "Three Stars in South"),
 ]
@@ -40,6 +40,11 @@ BEARISH_PATTERNS = [
 	(talib.CDL2CROWS,           "Two Crows"),
 	(talib.CDLIDENTICAL3CROWS,  "Identical Three Crows"),
 	(talib.CDLONNECK,           "On-Neck"),
+	# Two-way TA-Lib patterns: the bullish side is listed above, the bearish side here
+	(talib.CDLBREAKAWAY,        "Bearish Breakaway"),
+	(talib.CDLKICKING,          "Bearish Kicking"),
+	(talib.CDLABANDONEDBABY,    "Bearish Abandoned Baby"),
+	(talib.CDLTRISTAR,          "Bearish Tri-Star"),
 ]
 
 # These patterns fire both bullish (positive) and bearish (negative) signals
