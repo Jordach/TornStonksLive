@@ -16,7 +16,6 @@ BULLISH_PATTERNS = [
 	(talib.CDLPIERCING,         "Piercing"),
 	(talib.CDLMORNINGSTAR,      "Morningstar"),
 	(talib.CDL3WHITESOLDIERS,   "Three White Soldiers"),
-	(talib.CDLONNECK,           "On-Neck"),
 	(talib.CDLMORNINGDOJISTAR,  "Morning Doji Star"),
 	(talib.CDLBREAKAWAY,        "Breakaway"),
 	(talib.CDLMATHOLD,          "Mat Hold"),
@@ -27,6 +26,7 @@ BULLISH_PATTERNS = [
 	(talib.CDLABANDONEDBABY,    "Abandoned Baby"),
 	(talib.CDLTRISTAR,          "Tri-Star"),
 	(talib.CDLSTICKSANDWICH,    "Stick Sandwich"),
+	(talib.CDL3STARSINSOUTH,    "Three Stars in South"),
 ]
 
 BEARISH_PATTERNS = [
@@ -38,8 +38,8 @@ BEARISH_PATTERNS = [
 	(talib.CDLEVENINGDOJISTAR,  "Evening Doji Star"),
 	(talib.CDLADVANCEBLOCK,     "Advance Block"),
 	(talib.CDL2CROWS,           "Two Crows"),
-	(talib.CDL3STARSINSOUTH,    "Three Stars in South"),
 	(talib.CDLIDENTICAL3CROWS,  "Identical Three Crows"),
+	(talib.CDLONNECK,           "On-Neck"),
 ]
 
 # These patterns fire both bullish (positive) and bearish (negative) signals

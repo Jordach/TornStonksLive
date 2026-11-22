@@ -380,7 +380,9 @@ def _recent_patterns(ticker, bullish):
 	names = []
 	for func, name in (BULLISH_PATTERNS if bullish else BEARISH_PATTERNS):
 		vals = func(o, h, l, c)
-		if (vals.iloc[-3:] != 0).any():
+		# Some TA-Lib patterns fire both ways; only count the matching direction
+		recent = vals.iloc[-3:]
+		if ((recent > 0) if bullish else (recent < 0)).any():
 			names.append(name)
 	return names
 
