@@ -86,8 +86,9 @@ ENTRIES = [
 			"spiral towards zero.\n"
 			"• **Per-minute noise**: small random moves every minute disguise which real stocks a price "
 			"follows, so nobody can copy a real exchange and trade ahead of everyone else.\n\n"
-			"Torn doesn't publish the details. Its own guidance is that prices follow real-world stocks in the "
-			"same industries and should rise about 10% a year on average, with no guarantees.",
+			"Torn doesn't publish the details. Its announcement said prices follow real-world stocks in the "
+			"same industries, and estimated growth of about 10% a year in line with overall in-game inflation, "
+			"with no guarantees. Actual growth has been about 6.6% a year.",
 
 			"**What the price history shows**\n"
 			"• Every stock is worth more today than when the bot started tracking it. The typical gain is "
@@ -139,6 +140,9 @@ ENTRIES = [
 			"Each stock has a baseline price underneath it that it isn't allowed to fall through. Torn doesn't "
 			"publish the levels, but the floor means a Torn stock can't go the way of a bankrupt company and "
 			"drift towards zero.\n\n"
+			"Torn's announcement estimated growth of about 10% a year, in line with in-game inflation. Every "
+			"stock has actually grown at about 6.6% a year, steadily, which points to prices being held around "
+			"a set average or floor rather than left to wander.\n\n"
 			"**Why it makes stocks resilient**\n"
 			"• **Losses are capped.** However bad a run gets, a price can only fall so far, and the further it "
 			"falls the less room is left below.\n"
@@ -212,7 +216,8 @@ ENTRIES = [
 			"• **Treat it as free money.** Resilient isn't risk-free:\n"
 			"  – Recoveries can take months, and around two years after a 20% fall.\n"
 			"  – Money in a slow stock misses gains elsewhere (SYM has grown 0.3% a year).\n"
-			"  – Typical growth (6.6% a year) has been below Torn's 10% expectation.\n"
+			"  – Torn estimates in-game inflation at about 10% a year and stocks have grown about 6.6%, so "
+			"shares alone may not keep pace with rising prices in Torn.\n"
 			"  – Torn can change how the market works, as it did when it relaunched it in 2021.",
 		],
 		"related": ["resilience", "minimum price", "per-minute noise", "bot routine", "buy the dip"],
