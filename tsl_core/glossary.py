@@ -1,6 +1,7 @@
 """
-Glossary / guidebook for terms the bot uses, searchable by partial text the
-same way the ticker autocomplete works. Served by /glossary.
+Glossary / guidebook for the bot's slash commands and the terms it uses,
+searchable by partial text the same way the ticker autocomplete works.
+Served by /glossary.
 
 Chart-signal entries are keyed by the column names in
 tsl_core/analysis/swing.py (BULL_SIGNALS / BEAR_SIGNALS), so a definition
@@ -8,17 +9,164 @@ always describes exactly what the scoring code checks. Hit rates quoted are
 from the full daily history (Apr 2021 - Nov 2026, 35 stocks): how often a
 0.5% rise within 3 days followed, against a 28.4% base rate for any stock-day.
 
+Candle-pattern entries mirror the pattern lists in tsl_core/analysis/search.py
+(what /search reports); keep the two in step when a pattern is added.
+
 To add a term, append an entry to ENTRIES: key (unique, lowercase), title,
 category (one of CATEGORIES), aliases (extra search words), body (plain
 language, Discord markdown allowed, under ~900 characters) and related (keys).
 """
 import difflib
 
-CATEGORIES = ["Suggestions", "Chart signals", "Drop signs", "Indicators", "Other"]
+CATEGORIES = [
+	"Commands", "Suggestions", "Chart signals", "Drop signs", "Indicators",
+	"Bullish candles", "Bearish candles", "Two-way candles", "Other",
+]
 # Hit rates and backtest figures quoted below were measured in Nov 2026;
 # refresh them by hand if they drift (suggestion posts carry the live backtest)
 
+
+
+def _candle(key, title, category, aliases, looks, means, related=None):
+	"""A candle-pattern entry in the same Looks like / Means layout as the chart signals."""
+	return {
+		"key": key, "title": title, "category": category, "aliases": aliases,
+		"body": "**Looks like:** " + looks + "\n\n**Means:** " + means,
+		"related": (related or []) + ["candle patterns", "/search"],
+	}
+
+
+_BULL, _BEAR, _TWO = "Bullish candles", "Bearish candles", "Two-way candles"
+
 ENTRIES = [
+	# ── Commands ────────────────────────────────────────────────
+	{
+		"key": "/stock", "title": "/stock: price, shares and investors", "category": "Commands",
+		"aliases": ["stock", "price", "stock info"],
+		"body": "Shows a stock's current price, total shares held and number of investors.\n\n"
+			"Give a **timeframe** such as `h1`, `d1`, `w1` or `n1` to compare each figure with that long ago "
+			"(with the % change), or a unix timestamp to compare with an exact moment. The default `m1` "
+			"shows the current figures only.",
+		"related": ["timeframes", "/overview"],
+	},
+	{
+		"key": "/overview", "title": "/overview: scan every stock", "category": "Commands",
+		"aliases": ["overview", "movers", "lows", "highs", "scan"],
+		"body": "Checks every stock at once over the last N candles:\n\n"
+			"• **Movers**: the biggest price changes\n"
+			"• **Near Recent Lows**: stocks trading close to the period's lowest price\n"
+			"• **Near Recent Highs**: stocks trading close to the period's highest price\n\n"
+			"Pick the candle size (`m5` to `d1`, default `d1`) and how many candles to look back over "
+			"(2-4000, default 7, so a week of daily candles).",
+		"related": ["timeframes", "/search", "/stock"],
+	},
+	{
+		"key": "/search", "title": "/search: candle patterns and oscillators", "category": "Commands",
+		"aliases": ["search", "pattern search", "scan patterns"],
+		"body": "Looks at a stock's last three candles for named **candle patterns** (bullish, bearish or both) "
+			"and **oscillator** readings (RSI and Stochastic oversold/overbought, MACD crossovers). Use the "
+			"ticker `ALL` to scan every stock.\n\nCandle size `h1` to `d1` (default `d1`). Every pattern it "
+			"can report has its own glossary entry. Treat results as leads to look into, not picks: on Torn "
+			"most candle patterns barely beat chance.",
+		"related": ["candle patterns", "oversold", "macd crossover", "timeframes"],
+	},
+	{
+		"key": "/suggest", "title": "/suggest: today's picks and track record", "category": "Commands",
+		"aliases": ["suggest", "suggestions", "picks", "ranking"],
+		"body": "The bot's TA-backed picks.\n\n"
+			"• **horizon**: Daily (0.5% moves over a few days) or Weekly (1% over a week or more)\n"
+			"• **direction**: Upswings, Buy the Dip, or both\n"
+			"• **view**: current **Picks**, a **Full Ranking** of every stock by chance, or the **Track Record** "
+			"of past posted picks (with **days** setting how far back)",
+		"related": ["upswing", "buy the dip", "watchlist", "track record"],
+	},
+	{
+		"key": "/predict", "title": "/predict: price forecast chart", "category": "Commands",
+		"aliases": ["predict", "prediction", "forecast", "xgboost"],
+		"body": "Trains a model (XGBoost) on a stock's past closing prices at the chosen candle size and charts "
+			"where it projects the next **predictions** candles (up to 200). **samples** is how many past "
+			"candles it learns from (default 2000).\n\nA rough projection that gets less reliable the further "
+			"out it goes. For backtested picks, use `/suggest`.",
+		"related": ["timeframes", "/suggest"],
+	},
+	{
+		"key": "/alert", "title": "/alert: price alerts by DM", "category": "Commands",
+		"aliases": ["alert", "alerts", "up", "down", "loss", "stop loss", "price alert"],
+		"body": "The bot DMs you when a stock reaches a price.\n\n"
+			"• **Up**: at or above the value\n• **Down**: at or below it\n"
+			"• **Loss**: a stop-loss reminder, at or below it\n\n"
+			"The value can be a price (`123.45`) or a percentage from the current price (`5%`). Percentages "
+			"follow the alert's direction, so *Down 5%* means 5% below the current price. Your DMs need to be "
+			"open to the bot.",
+		"related": ["/notifications", "/forget", "/undo", "/clear"],
+	},
+	{
+		"key": "/notifications", "title": "/notifications: list your alerts", "category": "Commands",
+		"aliases": ["notifications", "my alerts", "list alerts", "pending"],
+		"body": "Lists your pending alerts, optionally only one type (Up, Down, Loss) or one stock. Sent by DM "
+			"when it can be, otherwise as a reply only you can see.",
+		"related": ["/alert", "/forget"],
+	},
+	{
+		"key": "/forget", "title": "/forget: remove alerts for a stock", "category": "Commands",
+		"aliases": ["forget", "remove alert", "delete alert"],
+		"body": "Removes your alerts for one stock. Optionally narrow it to one type (Up, Down, Loss) and/or "
+			"one price (matched to 2 decimal places).",
+		"related": ["/alert", "/undo", "/clear"],
+	},
+	{
+		"key": "/undo", "title": "/undo: remove your last alert", "category": "Commands",
+		"aliases": ["undo", "oops", "mistake"],
+		"body": "Removes the alert you added most recently, for when one was set up wrong.",
+		"related": ["/alert", "/forget"],
+	},
+	{
+		"key": "/clear", "title": "/clear: remove all your alerts", "category": "Commands",
+		"aliases": ["clear", "forget me", "clear alerts"],
+		"body": "Removes every alert you have pending.",
+		"related": ["/alert", "/forget"],
+	},
+	{
+		"key": "/paper", "title": "/paper buy & sell: trade calculator", "category": "Commands",
+		"aliases": ["paper", "paper buy", "paper sell", "calculator", "buy", "sell", "tax", "sell fee"],
+		"body": "Works out a trade at the current price without making it.\n\n"
+			"• **/paper buy**: how many shares a sum of cash buys, and the change left over\n"
+			"• **/paper sell**: what a number of shares is worth before and after Torn's 0.1% selling fee",
+		"related": ["amounts", "/portfolio"],
+	},
+	{
+		"key": "/portfolio", "title": "/portfolio: your Torn holdings", "category": "Commands",
+		"aliases": ["portfolio", "holdings", "my stocks", "transactions"],
+		"body": "Lists the stocks you own in Torn, each purchase with how its price has changed since. Filter "
+			"to one stock, and limit how many purchases are shown per stock.\n\nNeeds your Torn API key, "
+			"saved with `/apikey`. Only you can see the reply.",
+		"related": ["/apikey", "/paper"],
+	},
+	{
+		"key": "/apikey", "title": "/apikey: save your Torn API key", "category": "Commands",
+		"aliases": ["apikey", "api key", "key", "torn api"],
+		"body": "Saves, replaces, removes or checks your personal 16-character Torn API key. It is stored "
+			"encrypted and only used for your own commands, such as `/portfolio`.",
+		"related": ["/portfolio"],
+	},
+	{
+		"key": "/glossary", "title": "/glossary: this guidebook", "category": "Commands",
+		"aliases": ["glossary", "help", "guide", "commands", "what does"],
+		"body": "Search the bot's commands and terms. Start typing in `term:` and pick from the list; partial "
+			"words work (e.g. `boll`, `hammer`, `alert`). Leave it blank to list everything.",
+		"related": ["/suggest", "/search", "chart signals"],
+	},
+	{
+		"key": "admin commands", "title": "Admin commands", "category": "Commands",
+		"aliases": ["admin", "stop", "sync", "force_suggestions", "force suggestions"],
+		"body": "Only bot admins can use these.\n\n"
+			"• **/stop**: shuts the bot down cleanly\n"
+			"• **/sync**: pushes the slash command list to Discord after commands change\n"
+			"• **/force_suggestions**: runs the daily or weekly suggestion post now, as a private preview, in "
+			"the current channel, or live to the suggestion channels",
+		"related": ["/suggest"],
+	},
+
 	# ── Suggestions ─────────────────────────────────────────────
 	{
 		"key": "upswing", "title": "Upswing", "category": "Suggestions",
@@ -214,11 +362,11 @@ ENTRIES = [
 	},
 	{
 		"key": "macd", "title": "MACD", "category": "Indicators",
-		"aliases": ["moving average convergence divergence", "macd histogram", "macd crossover"],
+		"aliases": ["moving average convergence divergence", "macd histogram"],
 		"body": "The gap between a fast (12-day) and slow (26-day) exponential moving average. The histogram "
 			"is that gap minus its own 9-day average, so it shows whether momentum is speeding up or "
 			"slowing down.",
-		"related": ["b_macd_turn", "s_macd_turn"],
+		"related": ["b_macd_turn", "s_macd_turn", "macd crossover"],
 	},
 	{
 		"key": "bollinger bands", "title": "Bollinger bands", "category": "Indicators",
@@ -237,13 +385,14 @@ ENTRIES = [
 	},
 	{
 		"key": "candle patterns", "title": "Candle patterns (shown, not counted)", "category": "Indicators",
-		"aliases": ["hammer", "inverted hammer", "harami", "doji", "engulfing", "candlestick", "patterns"],
+		"aliases": ["candlestick", "candlesticks", "patterns", "candles"],
 		"body": "Named shapes of recent daily candles, like **Hammer** or **Inverted Hammer**, shown on picks as "
 			"context.\n\nThey are **not counted** as chart signals: across the daily history the best "
 			"(Hammer 29.5%, Inverted Hammer 29.4%) barely beat the 28.4% base rate, and counting them "
 			"lowered the backtested hit rate of daily picks (42.2% to 41.7%). Some classic patterns did worse "
-			"than chance on Torn.",
-		"related": ["chart signals"],
+			"than chance on Torn.\n\nEach pattern `/search` can report has its own entry under Bullish, Bearish and "
+			"Two-way candles.",
+		"related": ["chart signals", "/search", "p_hammer", "p_engulfing"],
 	},
 	{
 		"key": "typical daily move", "title": "Typical daily move", "category": "Indicators",
@@ -254,6 +403,184 @@ ENTRIES = [
 		"related": ["upswing", "buy the dip"],
 	},
 
+	{
+		"key": "oversold", "title": "Oversold / overbought (/search)", "category": "Indicators",
+		"aliases": ["overbought", "oversold position", "overbought position", "oscillators"],
+		"body": "How `/search` reports oscillators on the latest candle:\n\n"
+			"📈 **Oversold**: RSI below 30, or Stochastic %K and %D both below 20 with %K under %D\n"
+			"📉 **Overbought**: RSI above 70, or %K and %D both above 80 with %K over %D\n\n"
+			"Oversold means the price has fallen hard and fast and may bounce; overbought is the reverse. "
+			"Either can last a while in a strong trend.",
+		"related": ["rsi", "stochastic", "/search"],
+	},
+	{
+		"key": "macd crossover", "title": "MACD crossover", "category": "Indicators",
+		"aliases": ["macd cross", "bullish crossover", "bearish crossover", "signal line"],
+		"body": "Reported by `/search` when the MACD line crossed its 9-period signal line on the latest candle: "
+			"📈 upwards is bullish, 📉 downwards bearish.\n\nIt is a lagging signal. On Torn's daily "
+			"history it did no better than chance, so suggestion picks watch the earlier *MACD momentum "
+			"turning up* instead.",
+		"related": ["macd", "b_macd_turn", "/search"],
+	},
+
+	# ── Bullish candles (after a fall; /search Bullish) ─────────
+	_candle("p_hammer", "Hammer", _BULL, ["hammer candle"],
+		"after a fall, one candle with a small body near the top and a lower wick at least twice as long as the body.",
+		"sellers pushed the price well down but buyers took it back by the close. One of the two best patterns on Torn, though still only just above chance.",
+		["p_hanging_man", "p_inverted_hammer"]),
+	_candle("p_inverted_hammer", "Inverted Hammer", _BULL, [],
+		"after a fall, a small body near the bottom of the candle with a long upper wick.",
+		"buyers tried to push higher. A reversal needs the next candle to follow through.",
+		["p_shooting_star", "p_hammer"]),
+	_candle("p_piercing", "Piercing", _BULL, ["piercing line", "piercing pattern"],
+		"a long falling candle, then a rising one that opens below its low and closes above the middle of its body.",
+		"buyers won back more than half of the previous candle's loss.",
+		["p_dark_cloud_cover"]),
+	_candle("p_morningstar", "Morningstar", _BULL, ["morning star"],
+		"three candles: a long fall, a small candle gapping lower (the star), then a long rise closing well into the first candle's body.",
+		"the fall stalled on the middle candle and buyers took over.",
+		["p_morning_doji_star", "p_eveningstar"]),
+	_candle("p_morning_doji_star", "Morning Doji Star", _BULL, [],
+		"a Morningstar whose middle candle is a doji (opens and closes at almost the same price).",
+		"as Morningstar, with clearer indecision at the bottom.",
+		["p_morningstar", "p_doji"]),
+	_candle("p_three_white_soldiers", "Three White Soldiers", _BULL, ["3 white soldiers", "soldiers"],
+		"three long rising candles in a row, each opening inside the previous body and closing near its high.",
+		"steady buying over three periods; a strong reversal after a fall.",
+		["p_three_black_crows"]),
+	_candle("p_breakaway", "Breakaway", _BULL, [],
+		"five candles: a gap down that starts a fall lasting three candles, then a long rise that closes inside the gap.",
+		"the selling ran out of steam. /search only reports the bullish version.",
+		[]),
+	_candle("p_mat_hold", "Mat Hold", _BULL, [],
+		"in a rise, a long rising candle, a gap up, three small falling candles that stay above the first candle's low, then a long rise to a new high.",
+		"a pause in an uptrend that then carries on.",
+		["p_tasuki_gap"]),
+	_candle("p_homing_pigeon", "Homing Pigeon", _BULL, [],
+		"two falling candles, the second's body entirely inside the first's.",
+		"the selling is shrinking.",
+		["p_harami"]),
+	_candle("p_unique_three_river", "Unique Three River", _BULL, ["unique 3 river"],
+		"a long fall; a second falling candle that makes a new low but has a smaller body; then a small rising candle closing below the second's close.",
+		"a rare sign that a bottom is forming.",
+		[]),
+	_candle("p_kicking", "Kicking", _BULL, ["kicker"],
+		"a falling candle with no wicks, then a rising candle with no wicks that gaps above it.",
+		"an abrupt switch from sellers to buyers. /search only reports the bullish version.",
+		["p_marubozu"]),
+	_candle("p_ladder_bottom", "Ladder Bottom", _BULL, [],
+		"three falling candles each opening and closing lower, a fourth falling candle with an upper wick, then a rise opening above the fourth's body.",
+		"a reversal at the end of a long fall.",
+		[]),
+	_candle("p_abandoned_baby", "Abandoned Baby", _BULL, [],
+		"a long fall, a doji that gaps below it with no overlap, then a rise that gaps above the doji.",
+		"a rare, sharp reversal. /search only reports the bullish version.",
+		["p_morningstar", "p_doji"]),
+	_candle("p_tri_star", "Tri-Star", _BULL, ["tristar"],
+		"three dojis in a row, the middle one gapping below the other two.",
+		"repeated indecision after a fall, which can mark a turn. /search only reports the bullish version.",
+		["p_doji"]),
+	_candle("p_stick_sandwich", "Stick Sandwich", _BULL, [],
+		"a falling candle, a rising candle, then a falling candle that closes at the same price as the first.",
+		"that price held as a floor twice.",
+		[]),
+	_candle("p_three_stars_in_south", "Three Stars in South", _BULL, ["three stars in the south", "3 stars in south"],
+		"three falling candles, each smaller than the last and with a higher low.",
+		"the selling is drying up.",
+		[]),
+
+	# ── Bearish candles (after a rise; /search Bearish) ─────────
+	_candle("p_hanging_man", "Hanging Man", _BEAR, [],
+		"the Hammer shape (small body at the top, long lower wick) but after a rise.",
+		"sellers showed up during the uptrend. Needs the next candle to confirm.",
+		["p_hammer"]),
+	_candle("p_shooting_star", "Shooting Star", _BEAR, [],
+		"after a rise, a small body near the bottom of the candle with a long upper wick.",
+		"buyers pushed higher but the price was knocked back by the close.",
+		["p_inverted_hammer"]),
+	_candle("p_eveningstar", "Eveningstar", _BEAR, ["evening star"],
+		"three candles: a long rise, a small candle gapping higher, then a long fall closing well into the first candle's body.",
+		"the rise stalled on the middle candle and sellers took over.",
+		["p_evening_doji_star", "p_morningstar"]),
+	_candle("p_evening_doji_star", "Evening Doji Star", _BEAR, [],
+		"an Eveningstar whose middle candle is a doji.",
+		"as Eveningstar, with clearer indecision at the top.",
+		["p_eveningstar", "p_doji"]),
+	_candle("p_three_black_crows", "Three Black Crows", _BEAR, ["3 black crows", "crows"],
+		"three long falling candles in a row, each opening inside the previous body and closing near its low.",
+		"steady selling over three periods; a strong reversal after a rise.",
+		["p_three_white_soldiers", "p_identical_three_crows"]),
+	_candle("p_dark_cloud_cover", "Dark Cloud Cover", _BEAR, ["dark cloud"],
+		"a long rising candle, then one that opens above its high and closes below the middle of its body.",
+		"sellers wiped out more than half of the previous candle's gain.",
+		["p_piercing"]),
+	_candle("p_advance_block", "Advance Block", _BEAR, [],
+		"three rising candles with shrinking bodies and growing upper wicks.",
+		"the rise is still going but losing strength.",
+		["p_three_white_soldiers"]),
+	_candle("p_two_crows", "Two Crows", _BEAR, ["2 crows"],
+		"a long rise; a falling candle that gaps up; then another falling candle that opens inside the second and closes inside the first's body.",
+		"the gap up failed and sellers are pushing back.",
+		[]),
+	_candle("p_identical_three_crows", "Identical Three Crows", _BEAR, ["identical 3 crows"],
+		"three falling candles, each opening at about the previous close.",
+		"relentless selling with no bounce between candles.",
+		["p_three_black_crows"]),
+	_candle("p_on_neck", "On-Neck", _BEAR, ["on neck"],
+		"in a fall, a long falling candle, then a rising candle that opens lower and closes only at about the first's low.",
+		"the bounce was weak, so the fall is likely to continue.",
+		[]),
+
+	# ── Two-way candles (/search reports either direction) ──────
+	_candle("p_three_inside", "Three Inside Up / Down", _TWO, ["three inside", "three inside up", "three inside down"],
+		"a Harami (big candle then a small one inside it) followed by a third candle that closes beyond the first candle's body.",
+		"**Up** after a fall (bullish), **Down** after a rise (bearish); a Harami that the next candle confirmed.",
+		["p_harami", "p_three_outside"]),
+	_candle("p_three_outside", "Three Outside Up / Down", _TWO, ["three outside", "three outside up", "three outside down"],
+		"an Engulfing pair followed by a third candle that continues in the same direction.",
+		"**Up** is bullish, **Down** bearish; an Engulfing that the next candle confirmed.",
+		["p_engulfing", "p_three_inside"]),
+	_candle("p_harami", "Harami", _TWO, ["bullish harami", "bearish harami", "inside bar"],
+		"a long candle, then a small candle whose body sits entirely inside the first's body.",
+		"the move is stalling. **Bullish** after a fall, **Bearish** after a rise.",
+		["p_harami_cross", "p_three_inside"]),
+	_candle("p_harami_cross", "Harami Cross", _TWO, ["bullish harami cross", "bearish harami cross"],
+		"a Harami whose second candle is a doji.",
+		"as Harami, with stronger indecision.",
+		["p_harami", "p_doji"]),
+	_candle("p_marubozu", "Marubozu", _TWO, ["white marubozu", "black marubozu"],
+		"a long candle with little or no wick at either end.",
+		"one side was in control the whole period: **White** opened at the low and closed at the high (buyers), **Black** the reverse (sellers).",
+		["p_belt_hold"]),
+	_candle("p_counterattack", "Counterattack", _TWO, ["bullish counterattack", "bearish counterattack", "counterattack lines"],
+		"two long candles of opposite colour that close at about the same price.",
+		"the second candle fought all the way back to the first's close. **Bullish** after a fall, **Bearish** after a rise.",
+		[]),
+	_candle("p_engulfing", "Engulfing", _TWO, ["bullish engulfing", "bearish engulfing"],
+		"a candle whose body completely covers the previous, opposite-coloured body.",
+		"the other side took over decisively. **Bullish** (rising candle engulfs a falling one) after a fall, **Bearish** after a rise.",
+		["p_three_outside", "p_piercing", "p_dark_cloud_cover"]),
+	_candle("p_doji", "Doji", _TWO, ["bullish doji", "bearish doji", "cross"],
+		"a candle that opens and closes at almost the same price, so the body is a thin line.",
+		"indecision between buyers and sellers. TA-Lib doesn't give a doji a direction, so `/search` always lists it as *Bullish Doji*; read it against the trend before it.",
+		["p_spinning_top", "p_harami_cross"]),
+	_candle("p_spinning_top", "Spinning Top", _TWO, ["bullish spinning top", "bearish spinning top"],
+		"a small body with wicks on both sides; bullish or bearish by the body's colour.",
+		"neither side won the period. Mostly a sign of indecision rather than direction.",
+		["p_doji"]),
+	_candle("p_belt_hold", "Belt Hold", _TWO, ["bullish belt hold", "bearish belt hold"],
+		"a long candle that opens at its extreme against the trend: a rising candle opening at its low after a fall, or a falling one opening at its high after a rise.",
+		"a sharp push against the trend from the very start of the period.",
+		["p_marubozu"]),
+	_candle("p_tasuki_gap", "Tasuki Gap", _TWO, ["upside tasuki gap", "downside tasuki gap"],
+		"a gap in the direction of the trend, then a candle the other way that partly fills the gap but doesn't close it.",
+		"the trend is likely to continue. **Upside** is bullish, **Downside** bearish.",
+		["p_mat_hold"]),
+	_candle("p_separating_lines", "Separating Lines", _TWO, ["bull separating lines", "bear separating lines"],
+		"a candle against the trend, then a trend candle that opens at the same price and moves away from it.",
+		"the counter-move was rejected and the trend carries on. **Bull** in a rise, **Bear** in a fall.",
+		[]),
+
 	# ── Other ───────────────────────────────────────────────────
 	{
 		"key": "tct", "title": "TCT (Torn City Time)", "category": "Other",
@@ -261,6 +588,23 @@ ENTRIES = [
 		"body": "Torn's clock, the same as UTC+0. A *daily close* is the last price before 00:00 TCT. "
 			"Suggestion deadlines are shown as Discord timestamps, which display in your own timezone.",
 		"related": ["upswing", "buy the dip"],
+	},
+	{
+		"key": "timeframes", "title": "Timeframes (m5, h1, d1, ...)", "category": "Other",
+		"aliases": ["timeframe", "interval", "intervals", "candle size", "m1", "m5", "h1", "d1", "w1", "n1"],
+		"body": "The candle size or look-back period a command works on: **m** minutes, **h** hours, **d** days, "
+			"**w** weeks, **n** months.\n\n"
+			"• Candle sizes: `m1 m5 m15 m30 h1 h2 h4 h6 h12 d1`\n"
+			"• `/stock` also takes `w1` and `n1` (or a unix timestamp)\n"
+			"• `/overview` starts at `m5`; `/search` uses `h1` to `d1`",
+		"related": ["/stock", "/overview", "/search", "/predict"],
+	},
+	{
+		"key": "amounts", "title": "Amounts (500k, 1.5m, 2b)", "category": "Other",
+		"aliases": ["numbers", "shorthand", "k", "m", "b", "1,000,000"],
+		"body": "Number fields accept shorthand: `500k` = 500,000, `1.5m` = 1,500,000, `2b` = 2,000,000,000 "
+			"and `1t` = one trillion. Commas are fine too (`1,000,000`).",
+		"related": ["/paper", "/alert"],
 	},
 ]
 

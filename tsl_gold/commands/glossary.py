@@ -27,7 +27,7 @@ def _entry_embed(entry):
 
 
 def _index_embed():
-	embed = discord.Embed(title="📖 Glossary", description="Start typing in `/glossary term:` to search; partial words work (e.g. `boll`, `hammer`, `dip`).")
+	embed = discord.Embed(title="📖 Glossary", description="Commands, chart signals, candle patterns and more. Start typing in `/glossary term:` to search; partial words work (e.g. `alert`, `boll`, `hammer`, `dip`).")
 	embed.color = discord.Color.teal()
 	for category in glossary.CATEGORIES:
 		titles = [e["title"] for e in glossary.ENTRIES if e["category"] == category]
@@ -36,7 +36,7 @@ def _index_embed():
 	return embed
 
 
-@client.tree.command(name="glossary", description="Look up a term used by the bot: chart signals, Buy the Dip, RSI, and more.")
+@client.tree.command(name="glossary", description="Look up a command or term: /alert, chart signals, candle patterns, Buy the Dip, RSI, and more.")
 @app_commands.describe(term="Start typing to search; leave blank to list every term.")
 @app_commands.autocomplete(term=term_autocomplete)
 async def glossary_cmd(interaction: discord.Interaction, term: str = ""):
