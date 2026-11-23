@@ -148,6 +148,9 @@ best_loss.json
 best_rand.json
 /db
 
+# Do not commit Claude Code
+/.claude
+
 # SQLite database
 tsl_data.db
 tsl_data.db-wal
