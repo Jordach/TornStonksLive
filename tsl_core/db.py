@@ -141,117 +141,120 @@ def _last_stored_m1(path):
 	finally:
 		con.close()
 
-def import_from_tornsy(ticker, intervals, limit=-1):
-	pwd = os.getcwd()
+# Seconds per candle; a candle starts at floor(timestamp / seconds) * seconds
+INTERVAL_SECONDS = {
+	"m1": 60, "m5": 300, "m15": 900, "m30": 1800,
+	"h1": 3600, "h2": 7200, "h4": 14400, "h6": 21600, "h12": 43200,
+	"d1": 86400,
+}
+
+# Tornsy returns at most one day of minutes per request
+_TORNSY_M1_PAGE = 1440
+
+# Same merge the live feed uses: keep the stored open, widen high/low, take the newest close
+_CANDLE_UPSERT = (
+	"INSERT INTO {0} (date, open, high, low, close) VALUES (?, ?, ?, ?, ?) "
+	"ON CONFLICT(date) DO UPDATE SET "
+	"high=MAX(high, excluded.high), low=MIN(low, excluded.low), close=excluded.close"
+)
+
+def import_from_tornsy(ticker, intervals, limit=-1, progress=None):
+	"""
+	Fetch Tornsy's m1 history for `ticker` and roll it up into every interval, the same
+	way Tornsy builds its own candles from m1. With stored data, only minutes from the
+	newest stored one onwards are fetched (that minute again, as it may still have been
+	forming). `limit` caps the extra pages fetched beyond the first (<= 0: first page only).
+
+	`progress(minutes_fetched, oldest_timestamp)` is called after each page.
+	Returns the number of minutes written, or None if Tornsy could not be reached.
+	"""
+	import numpy as np
+
 	name = ticker.lower()
-
-	# Only fetch minutes from the newest one already stored onwards (that minute is
-	# re-fetched so a candle that was still forming gets its final values)
-	last_m1 = _last_stored_m1(pwd + "/db/db_" + name + ".db")
-
-	ohlc_data = get_tornsy_candles(ticker, "m1", "2000")
-	if not ohlc_data:
-		return
-
-	con = sqlite3.connect(pwd + "/db/db_" + name + ".db")
-	cur = con.cursor()
-
-	dt = {"date":[], "Open":[], "High":[], "Low":[], "Close":[]}
-
-	# Only grab previous entries if there are exactly 1440 m1 entries corresponding to one day.
-	# Or limit >= 1. No need to page back if this page already reaches stored data.
-	max_items = 1440
-	reaches_stored = last_m1 is not None and len(ohlc_data["data"]) > 0 and int(ohlc_data["data"][0][0]) <= last_m1
-	if len(ohlc_data["data"]) == max_items and limit > 0 and not reaches_stored:
-		cdate = str(ohlc_data["data"][0][0])
-		ohlcs = []
-		
-		lim = 0
-		while True:
-			ohlc = get_tornsy_candles(ticker, "m1", str(max_items), cdate)
-			if not ohlc:
-				# Keep whatever history was fetched before the failure
-				break
-
-			cdate = str(ohlc["data"][0][0])
-			ohlcs.insert(0, ohlc)
-			# Don't grab another set because Tornsy lacks history,
-			# we've reached minutes already stored, or we hit the import cap
-			if len(ohlc["data"]) < max_items or lim == limit:
-				break
-			if last_m1 is not None and int(ohlc["data"][0][0]) <= last_m1:
-				break
-			lim += 1
-			time.sleep(0.05)
-
-		# Append all the data 
-		for k in range(len(ohlcs)):
-			for i in range(len(ohlcs[k]["data"])):
-				dt["date"].append((ohlcs[k]["data"][i][0]))
-				dt["Open"].append((ohlcs[k]["data"][i][1]))
-				dt["High"].append((ohlcs[k]["data"][i][1]))
-				dt["Low"].append((ohlcs[k]["data"][i][1]))
-				dt["Close"].append((ohlcs[k]["data"][i][1]))
-
-	for item in ohlc_data["data"]:
-		dt["date"].append((item[0]))
-		dt["Open"].append((item[1]))
-		dt["High"].append((item[1]))
-		dt["Low"].append((item[1]))
-		dt["Close"].append((item[1]))
-
-	# Minutes older than the newest stored one are already in every table
-	if last_m1 is not None:
-		keep = [i for i, d in enumerate(dt["date"]) if int(d) >= last_m1]
-		for key in dt:
-			dt[key] = [dt[key][i] for i in keep]
-
+	if not _TICKER_PATTERN.match(name):
+		raise ValueError("Invalid ticker: " + repr(ticker))
 	for interval in intervals:
-		cur.execute("CREATE TABLE IF NOT EXISTS " + interval + " (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
-	con.commit()
+		if interval not in INTERVAL_SECONDS:
+			raise ValueError("Invalid interval: " + repr(interval))
+	path = os.path.join(os.getcwd(), "db", "db_" + name + ".db")
+	last_m1 = _last_stored_m1(path)
 
-	for i in range(len(dt["date"])):
-		for interval in intervals:
-			timestamp = 0
-			dt_time = int(dt["date"][i])
-			if interval == "m5":
-				timestamp = floor(dt_time / 300) * 300
-			elif interval == "m15":
-				timestamp = floor(dt_time / 900) * 900
-			elif interval == "m30":
-				timestamp = floor(dt_time / 1800) * 1800
-			elif interval == "h1":
-				timestamp = floor(dt_time / 3600) * 3600
-			elif interval == "h2":
-				timestamp = floor(dt_time / 7200) * 7200
-			elif interval == "h4":
-				timestamp = floor(dt_time / 14400) * 14400
-			elif interval == "h6":
-				timestamp = floor(dt_time / 21600) * 21600
-			elif interval == "h12":
-				timestamp = floor(dt_time / 43200) * 43200
-			elif interval == "d1":
-				timestamp = floor(dt_time / 86400) * 86400
-			else: # == "m1"
-				timestamp = floor(dt_time / 60) * 60
+	# Walk back from now one page at a time. Pages are kept newest first as compact
+	# arrays; a full history is a few million minutes per stock.
+	pages = []
+	fetched = 0
+	oldest = None
+	to = "NONE"
+	requests_made = 0
+	while True:
+		ohlc = get_tornsy_candles(name, "m1", str(_TORNSY_M1_PAGE), to)
+		if not ohlc or "data" not in ohlc:
+			if requests_made == 0:
+				return None
+			break  # keep whatever was fetched before the failure
+		requests_made += 1
+		page = ohlc["data"]
 
-			cmd = "INSERT INTO " + interval + "(date, open, high, low, close) VALUES "
-			cmd += "(" + str(timestamp) + ", "
-			cmd += str(dt["Open"][i]) + ", "
-			cmd += str(dt["High"][i]) + ", "
-			cmd += str(dt["Low"][i]) + ", "
-			cmd += str(dt["Close"][i]) + ") "
-			cmd += "ON CONFLICT(date) DO UPDATE SET "
-			cmd += "high=IIF(" + str(dt["High"][i]) + " > high, " + str(dt["High"][i]) + ", high), "
-			cmd += "low=IIF(" + str(dt["Low"][i]) + " < low, " + str(dt["Low"][i]) + ", low), "
-			cmd += "close=" + str(dt["Close"][i])
-			try:
-				cur.execute(cmd)
-			except:
-				print(cmd)
+		rows = page
+		if oldest is not None:
+			rows = [r for r in rows if int(r[0]) < oldest]  # drop overlap with the newer page
+		if last_m1 is not None:
+			rows = [r for r in rows if int(r[0]) >= last_m1]  # already stored
+		if rows:
+			pages.append((
+				np.array([int(r[0]) for r in rows], dtype=np.int64),
+				np.array([float(r[1]) for r in rows], dtype=np.float64),
+			))
+			fetched += len(rows)
+			oldest = int(rows[0][0])
+		if progress is not None:
+			progress(fetched, oldest)
 
-	con.commit()
-	con.close()
+		# Stop when Tornsy's history runs out, stored minutes are reached, nothing new
+		# came back, or the page cap is hit
+		if len(page) < _TORNSY_M1_PAGE or not rows:
+			break
+		if last_m1 is not None and int(page[0][0]) <= last_m1:
+			break
+		if limit <= 0 or requests_made > limit:
+			break
+		to = str(int(page[0][0]))
+		time.sleep(0.05)
+
+	if fetched == 0:
+		return 0
+
+	ts = np.concatenate([p[0] for p in reversed(pages)])
+	price = np.concatenate([p[1] for p in reversed(pages)])
+	if np.any(np.diff(ts) <= 0):
+		# Pages are ascending, so this is only a safety net: sort, keep one per timestamp
+		order = np.argsort(ts, kind="stable")
+		ts, price = ts[order], price[order]
+		keep = np.r_[ts[1:] != ts[:-1], True]  # last value for a repeated timestamp
+		ts, price = ts[keep], price[keep]
+	del pages
+
+	con = sqlite3.connect(path)
+	try:
+		with con:  # one transaction for the whole stock
+			for interval in intervals:
+				seconds = INTERVAL_SECONDS[interval]
+				con.execute("CREATE TABLE IF NOT EXISTS " + interval + " (date integer PRIMARY KEY UNIQUE, open real, high real, low real, close real)")
+				buckets = (ts // seconds) * seconds
+				# ts is ascending, so each candle is a contiguous run: open is its first
+				# price, close its last
+				starts = np.flatnonzero(np.r_[True, buckets[1:] != buckets[:-1]])
+				ends = np.r_[starts[1:], len(ts)] - 1
+				con.executemany(_CANDLE_UPSERT.format(interval), zip(
+					buckets[starts].tolist(),
+					price[starts].tolist(),
+					np.maximum.reduceat(price, starts).tolist(),
+					np.minimum.reduceat(price, starts).tolist(),
+					price[ends].tolist(),
+				))
+	finally:
+		con.close()
+	return len(ts)
 
 def update_from_tornsy(json_data, intervals):
 	pwd = os.getcwd()

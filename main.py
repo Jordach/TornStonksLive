@@ -1,4 +1,6 @@
+import datetime
 import os
+import time
 import requests
 import json
 import importlib
@@ -23,21 +25,54 @@ current_day = tsl_lib.util.current_date()
 # Per-stock price databases live here; a fresh install doesn't have it yet
 os.makedirs("db", exist_ok=True)
 
-# Back fill the DBs with data: fetches Tornsy's recent minutes for each stock and
-# writes only those newer than what's already stored. Longer gaps in daily
-# candles are filled separately by fill_daily_gaps_from_tornsy() before suggestions.
+def _duration(seconds):
+	seconds = int(seconds)
+	if seconds < 60:
+		return str(seconds) + "s"
+	if seconds < 3600:
+		return str(seconds // 60) + "m " + str(seconds % 60) + "s"
+	return str(seconds // 3600) + "h " + str(seconds % 3600 // 60) + "m"
+
+# Back fill the DBs with data: fetches Tornsy's m1 history for each stock, back to the
+# newest stored minute (all of it, a few years, for a new install), and rolls it up into
+# every interval. Longer gaps in daily candles are filled separately by
+# fill_daily_gaps_from_tornsy() before suggestions.
 def backfill_db():
-	# Cap on pages of m1 history to walk back through, if Tornsy ever pages
+	# Cap on pages (days) of m1 history to walk back through
 	n_times = 12000
-	for ticker in tsl_lib.stock_lut:
-		tsl_lib.util.write_log("[INFO]: Downloading " + ticker + ".", current_day)
+	# A full history is ~2000 pages per stock, so report at most this often
+	report_every = 15
+	tickers = tsl_lib.stock_lut
+	started = time.time()
+	tsl_lib.util.write_log("[INFO] Backfilling " + str(len(tickers)) + " stocks from Tornsy.", current_day)
+	for n, ticker in enumerate(tickers, start=1):
+		prefix = "[INFO] Backfill " + str(n) + "/" + str(len(tickers)) + " " + ticker + ": "
+		stock_started = time.time()
+		last_report = [stock_started]
+
+		def progress(minutes, oldest):
+			now = time.time()
+			if now - last_report[0] < report_every or oldest is None:
+				return
+			last_report[0] = now
+			back_to = datetime.datetime.fromtimestamp(oldest, datetime.timezone.utc).strftime("%Y-%m-%d")
+			tsl_lib.util.write_log(prefix + "fetched " + "{:,}".format(minutes) + " minutes, back to " + back_to + " (" + _duration(now - stock_started) + ")", current_day)
+
 		try:
-			tsl_lib.db.import_from_tornsy(ticker, tsl_lib.intervals, limit=n_times)
+			written = tsl_lib.db.import_from_tornsy(ticker, tsl_lib.intervals, limit=n_times, progress=progress)
 		except Exception:
 			# One stock failing (e.g. a Tornsy hiccup) shouldn't stop the bot starting
 			tsl_lib.util.write_log("[WARNING] Backfill failed for " + ticker + ":\n" + traceback.format_exc(), current_day)
 			continue
-		tsl_lib.util.write_log("[INFO]: " + ticker + " added to DB.", current_day)
+		if written is None:
+			tsl_lib.util.write_log("[WARNING] Backfill skipped " + ticker + ": Tornsy could not be reached.", current_day)
+			continue
+
+		elapsed = time.time() - started
+		remaining = len(tickers) - n
+		eta = (", about " + _duration(elapsed / n * remaining) + " left") if remaining else ""
+		tsl_lib.util.write_log(prefix + "saved " + "{:,}".format(written) + " minutes in " + _duration(time.time() - stock_started) + eta + ".", current_day)
+	tsl_lib.util.write_log("[INFO] Backfill finished in " + _duration(time.time() - started) + ".", current_day)
 
 if config.features["backfill"]:
 	backfill_db()
