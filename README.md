@@ -63,6 +63,10 @@ Create these files next to `main.py`:
 | `admins.json` | `{"admins": [your_discord_id, ...]}` for the admin commands. |
 | `alert_channels.conf` | One line per channel: `channel_id,tiny_role_id,small_role_id,medium_role_id,large_role_id` for large-trade (whale) pings. Trades of $150bn+ ping the small role, $450bn+ add medium, $750bn+ add large; smaller trades ping the tiny role, or nothing if it's `0`. |
 | `suggestion_channels.conf` | One channel ID per line for the daily/weekly suggestion posts. |
+
+Both channel files are created empty if missing. An empty one only stops startup when the feature
+that needs it is on: `suggestions=true` needs `suggestion_channels.conf`, `volatility=true` needs
+`alert_channels.conf`. Without alert channels, large-trade pings are simply not posted.
 | `features.conf` | Created on first run. Switches, one per line: `suggestions=true/false` (scheduled suggestion posts, default off), `volatility=true/false` (volatility posts, default off), `backfill=true/false` (catch up on missed price history at startup, default on). |
 
 Lines starting with `#` are comments. `encryption.key` (for stored API keys), `tsl_data.db`, and the

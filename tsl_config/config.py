@@ -162,55 +162,62 @@ def read_features():
 		tsl_lib.util.current_date(),
 	)
 
-# DEPRECATED NOTICE:
-# Will be converted to a singular Discord server and channel only for easier customised installation
-# Automated suggestions:
-def read_suggestions():
-	global suggestion_channels
-	with open("suggestion_channels.conf", "r") as suggest_config:
-		lines = suggest_config.readlines()
-		for line in lines:
-			# Handle comments
-			if line.strip().startswith("#"):
-				continue
+def _read_id_rows(path, columns, template):
+	"""
+	Read comma-separated integer IDs, `columns` per line, from `path`. A missing file is
+	created holding `template` (comment lines). Blank lines and # comments are skipped;
+	malformed lines are logged and skipped.
+	"""
+	if not os.path.exists(path):
+		with open(path, "w") as file:
+			file.write(template)
+		tsl_lib.util.write_log("[INFO] Created " + path + "; add your channel IDs to it.", tsl_lib.util.current_date())
+		return []
 
-			data = line.strip().split(",")
-			if len(data) == 1:
-				suggestion_channels["id"].append(int(data[0]))
-			else:
-				tsl_lib.util.write_log("[WARNING] suggestion_channels.conf has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
+	rows = []
+	with open(path, "r") as file:
+		for number, line in enumerate(file, start=1):
+			line = line.strip()
+			if line == "" or line.startswith("#"):
+				continue
+			data = [part.strip() for part in line.split(",")]
+			try:
+				if len(data) != columns:
+					raise ValueError
+				rows.append([int(part) for part in data])
+			except ValueError:
+				tsl_lib.util.write_log("[WARNING] " + path + " line " + str(number) + " is malformed, skipping it: " + line, tsl_lib.util.current_date())
+	return rows
+
+# Call read_features() first: whether an empty file is fatal depends on the feature switches.
+def read_suggestions():
+	for (channel_id,) in _read_id_rows(
+		"suggestion_channels.conf", 1,
+		"# One Discord channel ID per line for the daily/weekly suggestion posts.\n",
+	):
+		suggestion_channels["id"].append(channel_id)
 
 	if len(suggestion_channels["id"]) == 0:
-		with open("suggestion_channels.conf", "w") as file:
-			file.write("")
-		raise Exception("No channels to send automated analysis to - suggestion_channels.conf created.")
+		if features["suggestions"]:
+			raise Exception("suggestions=true in features.conf but suggestion_channels.conf has no channel IDs.")
+		tsl_lib.util.write_log("[INFO] No suggestion channels configured.", tsl_lib.util.current_date())
 
-# DEPRECATED NOTICE:
-# Will be converted to a singular Discord server and channel only for easier customised installation
-# Alerts and notifications
 def read_alerts():
-	global alert_channels
-	with open("alert_channels.conf", "r") as alert_config:
-		lines = alert_config.readlines()
-		for line in lines:
-			# Handle comments
-			if line.strip().startswith("#"):
-				continue
-
-			data = line.strip().split(",")
-			if len(data) == 5:
-				alert_channels["id"].append(int(data[0]))
-				alert_channels["tiny"].append(int(data[1]))
-				alert_channels["small"].append(int(data[2]))
-				alert_channels["medium"].append(int(data[3]))
-				alert_channels["large"].append(int(data[4]))
-			else:
-				tsl_lib.util.write_log("[WARNING] alert_channels.conf has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
+	for channel_id, tiny, small, medium, large in _read_id_rows(
+		"alert_channels.conf", 5,
+		"# One line per channel: channel_id,tiny_role_id,small_role_id,medium_role_id,large_role_id\n"
+		"# Use 0 for tiny_role_id to skip trades under $150bn.\n",
+	):
+		alert_channels["id"].append(channel_id)
+		alert_channels["tiny"].append(tiny)
+		alert_channels["small"].append(small)
+		alert_channels["medium"].append(medium)
+		alert_channels["large"].append(large)
 
 	if len(alert_channels["id"]) == 0:
-		with open("alert_channels.conf", "w") as file:
-			file.write("")
-		raise Exception("No channels to send automated notifications to - alert_channels.conf created.")
+		if features["volatility"]:
+			raise Exception("volatility=true in features.conf but alert_channels.conf has no channels.")
+		tsl_lib.util.write_log("[WARNING] No alert channels configured; large trade pings will not be posted.", tsl_lib.util.current_date())
 
 # Read admins.json
 def read_admins():
@@ -277,11 +284,16 @@ def read_user_alerts():
 			"[INFO] Loaded " + str(count) + " user alert(s) from SQLite.",
 			tsl_lib.util.current_date(),
 		)
+		# Already migrated on an earlier run; retire any leftover CSV
+		if os.path.exists("userdata.csv"):
+			_retire_legacy_alerts("userdata.csv")
 		return
 
 	conn.close()
 
 	# --- Fall back to legacy userdata.csv and migrate ---
+	# The CSV is retired once migrated. An empty alerts table is normal (every alert
+	# has fired or been cleared), so reading the CSV again would bring old alerts back.
 	legacy_path = "userdata.csv"
 	if not os.path.exists(legacy_path):
 		tsl_lib.util.write_log("[INFO] No existing user alerts to load.", tsl_lib.util.current_date())
@@ -289,23 +301,25 @@ def read_user_alerts():
 
 	with open(legacy_path, "r") as file:
 		lines = file.readlines()
-		ln = 1
-		for line in lines:
-			if ln == 1:
-				if line.strip() != "id,type,stock,value":
-					tsl_lib.util.write_log("[WARNING] userdata.csv is in an incorrect format, skipping loading.", tsl_lib.util.current_date())
-					return
-				ln += 1
-			else:
-				data = line.strip().split(",", 3)
-				if len(data) == 4:
-					userdata["id"].append(int(data[0]))
-					userdata["type"].append(str(data[1]))
-					userdata["stock"].append(str(data[2]))
-					userdata["value"].append(float(data[3]))
-				else:
-					tsl_lib.util.write_log("[WARNING] userdata.csv has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
-				ln += 1
+	# (Renamed only after closing it: Windows can't rename an open file)
+	if len(lines) == 0:
+		_retire_legacy_alerts(legacy_path)
+		tsl_lib.util.write_log("[INFO] No existing user alerts to load.", tsl_lib.util.current_date())
+		return
+
+	if lines[0].strip() != "id,type,stock,value":
+		# Left in place: an unrecognised file may be something else, so don't retire it
+		tsl_lib.util.write_log("[WARNING] userdata.csv is in an incorrect format, skipping loading.", tsl_lib.util.current_date())
+		return
+	for line in lines[1:]:
+		data = line.strip().split(",", 3)
+		if len(data) == 4:
+			userdata["id"].append(int(data[0]))
+			userdata["type"].append(str(data[1]))
+			userdata["stock"].append(str(data[2]))
+			userdata["value"].append(float(data[3]))
+		else:
+			tsl_lib.util.write_log("[WARNING] userdata.csv has incorrect data, skipping the malformed line.", tsl_lib.util.current_date())
 
 	# Persist the migrated data into SQLite
 	if len(userdata["id"]) > 0:
@@ -314,6 +328,13 @@ def read_user_alerts():
 			"[MIGRATION] Migrated " + str(len(userdata["id"])) + " user alert(s) from userdata.csv -> SQLite.",
 			tsl_lib.util.current_date(),
 		)
+	_retire_legacy_alerts(legacy_path)
+
+def _retire_legacy_alerts(legacy_path):
+	"""Rename userdata.csv so it is never migrated twice."""
+	retired_path = legacy_path + ".migrated"
+	os.replace(legacy_path, retired_path)
+	tsl_lib.util.write_log("[MIGRATION] Renamed " + legacy_path + " to " + retired_path + "; it will not be read again.", tsl_lib.util.current_date())
 
 # userdata is only mutated on the bot's event loop. Saving can happen on a worker
 # thread, so callers take a snapshot on the loop first and the worker writes that.

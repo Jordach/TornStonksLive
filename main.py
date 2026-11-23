@@ -15,9 +15,10 @@ import tsl_bot.bot as tsl_bot
 config.read_token()
 config.read_admins()
 config.read_user_alerts()
+# Features first: they decide whether the channel files are required
+config.read_features()
 config.read_alerts()
 config.read_suggestions()
-config.read_features()
 
 current_day = tsl_lib.util.current_date()
 
@@ -106,11 +107,13 @@ if config.enable_suggestions:
 	schedule.every().day.at("00:05", "UTC").do(suggests, "daily")
 	schedule.every().monday.at("00:10", "UTC").do(suggests, "weekly")
 
+# Daily/weekly volatility follow the candle close at 00:00 TCT (UTC), whatever the
+# host's own time zone is.
 if config.features["volatility"]:
 	schedule.every().hour.at("00:45").do(check_volatility)
 	schedule.every().hour.at("30:45").do(check_volatility)
-	schedule.every().day.at("01:00:45").do(check_daily_volatility)
-	schedule.every().monday.at("01:00:45").do(check_weekly_volatility)
+	schedule.every().day.at("00:00:45", "UTC").do(check_daily_volatility)
+	schedule.every().monday.at("00:01:45", "UTC").do(check_weekly_volatility)
 
 schedule.every().minute.at(":15").do(get_latest_stocks)
 
