@@ -50,8 +50,8 @@ Or with pip, after installing the [TA-Lib C library](https://ta-lib.org/install/
 pip install -r requirements.txt
 ```
 
-In the [Discord developer portal](https://discord.com/developers/applications), the bot needs the
-**Server Members** intent. Message Content is not needed.
+The bot needs no privileged intents: in the [Discord developer portal](https://discord.com/developers/applications),
+**Server Members**, **Presence** and **Message Content** can all stay off.
 
 ### Configure
 

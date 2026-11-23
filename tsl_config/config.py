@@ -38,7 +38,9 @@ FEATURE_DEFAULTS = {
 features = dict(FEATURE_DEFAULTS)
 enable_suggestions = features["suggestions"]
 
-intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
+# Slash commands arrive as interactions whatever the intents, with the member (and their
+# server nickname) included; DMs and channel posts are REST calls. Only guilds is needed.
+intents = discord.Intents(guilds=True)
 
 # SQLite implementation
 import sqlite3
