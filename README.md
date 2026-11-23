@@ -67,7 +67,7 @@ Create these files next to `main.py`:
 Both channel files are created empty if missing. An empty one only stops startup when the feature
 that needs it is on: `suggestions=true` needs `suggestion_channels.conf`, `volatility=true` needs
 `alert_channels.conf`. Without alert channels, large-trade pings are simply not posted.
-| `features.conf` | Created on first run. Switches, one per line: `suggestions=true/false` (scheduled suggestion posts, default off), `volatility=true/false` (volatility posts, default off), `backfill=true/false` (catch up on missed price history at startup, default on). |
+| `features.conf` | Created on first run. Switches, one per line: `suggestions=true/false` (scheduled suggestion posts, default off), `volatility=true/false` (volatility posts, default off), `backfill=true/false` (catch up on missed price history from Tornsy, default on; see below). |
 
 Lines starting with `#` are comments. `encryption.key` (for stored API keys), `tsl_data.db`, and the
 `db/` and `logs/` folders are created automatically. Keep `encryption.key` safe and out of version
@@ -81,6 +81,13 @@ python main.py
 
 The first time, and after adding or changing commands, run `/sync` in Discord so the command list
 updates.
+
+Price history is built from Tornsy's one-minute prices; every other timeframe is derived from them.
+With `backfill=true`, startup first loads the minutes missed since the bot last ran (at least the last
+day on a new install), which takes a few seconds, then the bot connects. Anything older that's
+missing is fetched in the background while live prices keep arriving. On a new install that's
+several years of history, a few hours in all; progress is logged per stock. An interrupted backfill
+resumes where it stopped on the next start, and a Tornsy outage is retried every 10 minutes.
 
 ## Tests
 

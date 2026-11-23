@@ -1,4 +1,5 @@
-"""import_from_tornsy against a fake Tornsy: candles match a plain minute-by-minute roll-up."""
+"""Startup load and background backfill against a fake Tornsy: every interval matches a plain
+minute-by-minute roll-up, whatever order the minutes were written in."""
 import os
 import random
 import sqlite3
@@ -8,6 +9,7 @@ import unittest
 import tsl_core.db as db
 
 INTERVALS = list(db.INTERVAL_SECONDS)
+DAY = 1440
 
 
 def _history(days, seed=1):
@@ -15,7 +17,7 @@ def _history(days, seed=1):
 	rnd = random.Random(seed)
 	t0 = 1_700_000_000 // 86400 * 86400 + 37 * 60
 	rows, price = [], 100.0
-	for i in range(days * 1440):
+	for i in range(days * DAY):
 		if rnd.random() < 0.02:
 			continue
 		price = max(1.0, price + rnd.gauss(0, 0.3))
@@ -23,10 +25,10 @@ def _history(days, seed=1):
 	return rows
 
 
-def _expected(rows, seconds):
-	"""Candles by applying the live feed's merge one minute at a time."""
+def _expected(ticks, seconds):
+	"""Candles from applying the live feed's merge one tick at a time, in time order."""
 	candles = {}
-	for ts, price, _ in rows:
+	for ts, price, _ in ticks:
 		price = float(price)
 		start = ts // seconds * seconds
 		if start in candles:
@@ -38,27 +40,32 @@ def _expected(rows, seconds):
 
 
 class FakeTornsy:
-	def __init__(self, rows):
-		self.rows, self.calls = rows, 0
+	"""Serves `rows` as Tornsy's m1 history; `fail_after` simulates an outage."""
+	def __init__(self, rows, fail_after=None):
+		self.rows, self.calls, self.fail_after = rows, 0, fail_after
 
 	def __call__(self, ticker, interval, limit, to="NONE", timeout=30):
 		self.calls += 1
+		if self.fail_after is not None and self.calls > self.fail_after:
+			return False
 		rows = self.rows if to == "NONE" else [r for r in self.rows if r[0] <= int(to)]
-		return {"data": rows[-min(int(limit), 1440):]}
+		return {"data": rows[-min(int(limit), DAY):]}
 
 
-class ImportFromTornsyTests(unittest.TestCase):
+class BackfillTests(unittest.TestCase):
 	def setUp(self):
 		self._old_cwd = os.getcwd()
 		self._tmp = tempfile.TemporaryDirectory()
 		os.chdir(self._tmp.name)
 		os.mkdir("db")
 		self._real_fetch, self._real_time = db.get_tornsy_candles, db.time
+		self.now = 0
+		test = self
 
-		class NoSleep:
+		class FakeTime:
 			sleep = staticmethod(lambda s: None)
-			time = staticmethod(self._real_time.time)
-		db.time = NoSleep
+			time = staticmethod(lambda: test.now)
+		db.time = FakeTime
 
 	def tearDown(self):
 		db.get_tornsy_candles, db.time = self._real_fetch, self._real_time
@@ -68,59 +75,124 @@ class ImportFromTornsyTests(unittest.TestCase):
 		except OSError:
 			pass
 
-	def _tables(self):
+	def _serve(self, rows, **kw):
+		"""Point the fake Tornsy at `rows`, with the clock just after the newest one."""
+		fake = FakeTornsy(rows, **kw)
+		db.get_tornsy_candles = fake
+		self.now = rows[-1][0] + 59
+		return fake
+
+	def _pending(self):
 		con = sqlite3.connect(os.path.join("db", "db_tsb.db"))
 		try:
-			return {i: con.execute("SELECT date, open, high, low, close FROM " + i + " ORDER BY date").fetchall() for i in INTERVALS}
+			return con.execute("SELECT lo, hi FROM backfill_pending ORDER BY hi").fetchall()
 		finally:
 			con.close()
 
-	def _assert_candles(self, rows):
-		tables = self._tables()
-		for interval, seconds in db.INTERVAL_SECONDS.items():
-			with self.subTest(interval=interval):
-				self.assertEqual(tables[interval], _expected(rows, seconds))
+	def _assert_candles(self, ticks):
+		con = sqlite3.connect(os.path.join("db", "db_tsb.db"))
+		try:
+			for interval, seconds in db.INTERVAL_SECONDS.items():
+				with self.subTest(interval=interval):
+					stored = con.execute("SELECT date, open, high, low, close FROM " + interval + " ORDER BY date").fetchall()
+					self.assertEqual(stored, _expected(ticks, seconds))
+		finally:
+			con.close()
 
-	def test_fresh_import_rolls_up_every_interval(self):
-		rows = _history(4)
-		db.get_tornsy_candles = FakeTornsy(rows)
+	def test_fresh_install_loads_a_day_then_backfills_the_rest(self):
+		rows = _history(10)
+		self._serve(rows)
+		written, pending = db.load_recent("TSB", INTERVALS)
+		self.assertTrue(DAY <= written <= 2 * DAY, written)
+		self.assertTrue(pending)
+		self.assertTrue(db.has_pending_backfill("TSB"))
+		self._assert_candles(rows[-written:])
+
 		seen = []
-		written = db.import_from_tornsy("TSB", INTERVALS, limit=100, progress=lambda m, oldest: seen.append((m, oldest)))
-		self.assertEqual(written, len(rows))
+		total = db.backfill_pending("TSB", INTERVALS, progress=lambda m, oldest: seen.append(m), chunk_minutes=3 * DAY)
+		self.assertEqual(total, len(rows) - written)
+		self.assertEqual(seen, sorted(seen))
+		self.assertFalse(db.has_pending_backfill("TSB"))
 		self._assert_candles(rows)
-		self.assertEqual(seen[-1], (len(rows), rows[0][0]))
-		self.assertEqual([m for m, _ in seen], sorted(m for m, _ in seen))
 
-	def test_top_up_refetches_the_last_stored_minute(self):
-		rows = _history(4)
-		cut = len(rows) // 2
-		db.get_tornsy_candles = FakeTornsy(rows[:cut])
-		db.import_from_tornsy("TSB", INTERVALS, limit=100)
+	def test_live_minutes_written_during_the_backfill_are_kept(self):
+		rows = _history(5)
+		self._serve(rows)
+		db.load_recent("TSB", INTERVALS)
 
-		# The last stored minute was still forming; Tornsy now has its final price
+		# The live feed stores a newer minute before the background backfill runs
+		live_ts = rows[-1][0] + 60
+		db.update_from_tornsy({"timestamp": live_ts, "data": [{"stock": "TSB", "price": "321.00"}]}, INTERVALS)
+		db.backfill_pending("TSB", INTERVALS)
+		self._assert_candles(rows + [[live_ts, "321.00", 1]])
+
+	def test_short_outage_needs_no_background_backfill(self):
+		rows = _history(6)
+		cut = len(rows) - 300
+		self._serve(rows[:cut])
+		db.load_recent("TSB", INTERVALS)
+		db.backfill_pending("TSB", INTERVALS)
+
+		# Back after ~5 hours; the last stored minute was still forming and has a final price
 		later = rows[:cut - 1] + [[rows[cut - 1][0], "500.00", 1]] + rows[cut:]
-		fake = FakeTornsy(later)
-		db.get_tornsy_candles = fake
-		written = db.import_from_tornsy("TSB", INTERVALS, limit=100)
+		fake = self._serve(later)
+		written, pending = db.load_recent("TSB", INTERVALS)
+		self.assertFalse(pending)
 		self.assertEqual(written, len(rows) - cut + 1)
-		self.assertLessEqual(fake.calls, 3)  # stopped at the stored data, didn't walk all history
-		# Stored candles keep the first-seen price for that minute as open, like the live feed
+		self.assertEqual(fake.calls, 1)
 		self._assert_candles(rows[:cut] + later[cut - 1:])
 
-	def test_limit_zero_fetches_one_page(self):
-		fake = FakeTornsy(_history(4))
-		db.get_tornsy_candles = fake
-		self.assertLessEqual(db.import_from_tornsy("TSB", INTERVALS, limit=0), 1440)
-		self.assertEqual(fake.calls, 1)
+	def test_long_outage_backfills_only_the_gap(self):
+		rows = _history(20)
+		cut = len(rows) // 2
+		self._serve(rows[:cut])
+		db.load_recent("TSB", INTERVALS)
+		db.backfill_pending("TSB", INTERVALS)
 
-	def test_unreachable_returns_none(self):
-		db.get_tornsy_candles = lambda *a, **k: False
-		self.assertIsNone(db.import_from_tornsy("TSB", INTERVALS, limit=100))
-		self.assertFalse(os.path.exists(os.path.join("db", "db_tsb.db")))
+		fake = self._serve(rows)
+		newest_stored = rows[cut - 1][0]
+		written, pending = db.load_recent("TSB", INTERVALS)
+		self.assertTrue(pending)
+		self.assertEqual(self._pending()[0][0], newest_stored)
+		db.backfill_pending("TSB", INTERVALS)
+		self.assertLessEqual(fake.calls, 13)  # ~10 days of gap, not all 20 days
+		self._assert_candles(rows)
+
+	def test_interrupted_backfill_resumes_where_it_stopped(self):
+		rows = _history(15)
+		self._serve(rows)
+		db.load_recent("TSB", INTERVALS)
+		first_hi = self._pending()[0][1]
+
+		self._serve(rows, fail_after=7)
+		self.assertIsNone(db.backfill_pending("TSB", INTERVALS, chunk_minutes=2 * DAY))
+		resumed_hi = self._pending()[0][1]
+		self.assertLess(resumed_hi, first_hi)  # committed chunks aren't fetched again
+
+		fake = self._serve(rows)
+		db.backfill_pending("TSB", INTERVALS, chunk_minutes=2 * DAY)
+		self.assertLess(fake.calls, 15)
+		self.assertFalse(db.has_pending_backfill("TSB"))
+		self._assert_candles(rows)
+
+	def test_tornsy_down_at_startup_leaves_everything_pending(self):
+		rows = _history(4)
+		self._serve(rows, fail_after=0)
+		self.assertIsNone(db.load_recent("TSB", INTERVALS))
+		# Open-ended: the live feed can't fill anything while Tornsy is down either
+		self.assertEqual(self._pending(), [(None, None)])
+
+		# Tornsy is back a few minutes later and the live feed has stored the newest minute
+		later = rows + [[rows[-1][0] + 60 * k, "%.2f" % (90 + k), 1] for k in range(1, 6)]
+		self._serve(later)
+		db.update_from_tornsy({"timestamp": later[-1][0], "data": [{"stock": "TSB", "price": later[-1][1]}]}, INTERVALS)
+		db.backfill_pending("TSB", INTERVALS)
+		self.assertFalse(db.has_pending_backfill("TSB"))
+		self._assert_candles(later)
 
 	def test_bad_interval_is_rejected(self):
 		with self.assertRaises(ValueError):
-			db.import_from_tornsy("TSB", ["m1; DROP TABLE m1"], limit=0)
+			db.load_recent("TSB", ["m1; DROP TABLE m1"])
 
 
 if __name__ == "__main__":

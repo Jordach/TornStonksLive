@@ -12,7 +12,9 @@ import tsl_core.analysis.swing as _swing
 from tsl_core.datestr import update_date as _update_date
 from tsl_core.db import get_stock_from_db as _get_stock_from_db
 from tsl_core.db import get_tornsy_candles as _get_tornsy_candles
-from tsl_core.db import import_from_tornsy as _import_from_tornsy
+from tsl_core.db import load_recent as _load_recent
+from tsl_core.db import backfill_pending as _backfill_pending
+from tsl_core.db import has_pending_backfill as _has_pending_backfill
 from tsl_core.db import update_from_tornsy as _update_from_tornsy
 from tsl_core.db import get_stock_df as _get_stock_df
 from tsl_core.db import suggestion_record as _suggestion_record
@@ -141,7 +143,9 @@ class db:
 	suggestion_set_outcome = _suggestion_set_outcome
 	suggestion_get_record = _suggestion_get_record
 	get_tornsy_data = _get_tornsy_candles
-	import_from_tornsy = _import_from_tornsy
+	load_recent = _load_recent
+	backfill_pending = _backfill_pending
+	has_pending_backfill = _has_pending_backfill
 	update_from_tornsy = _update_from_tornsy
 
 # Analytic functions

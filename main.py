@@ -1,5 +1,6 @@
 import datetime
 import os
+import threading
 import time
 import requests
 import json
@@ -33,18 +34,52 @@ def _duration(seconds):
 		return str(seconds // 60) + "m " + str(seconds % 60) + "s"
 	return str(seconds // 3600) + "h " + str(seconds % 3600 // 60) + "m"
 
-# Back fill the DBs with data: fetches Tornsy's m1 history for each stock, back to the
-# newest stored minute (all of it, a few years, for a new install), and rolls it up into
-# every interval. Longer gaps in daily candles are filled separately by
-# fill_daily_gaps_from_tornsy() before suggestions.
-def backfill_db():
-	# Cap on pages (days) of m1 history to walk back through
-	n_times = 12000
-	# A full history is ~2000 pages per stock, so report at most this often
-	report_every = 15
+# Price history comes from Tornsy's m1 minutes, which every other interval is built from.
+# Before the bot connects, each stock gets the minutes since it was last stored, or at
+# least the last day for a new install or after a longer outage, so commands have data
+# straight away. Anything older that's missing (years of it for a new install) is
+# fetched by a background thread while the live feed keeps adding new minutes.
+# Longer gaps in daily candles are also filled by fill_daily_gaps_from_tornsy() before
+# suggestions.
+def load_recent_prices():
 	tickers = tsl_lib.stock_lut
 	started = time.time()
-	tsl_lib.util.write_log("[INFO] Backfilling " + str(len(tickers)) + " stocks from Tornsy.", current_day)
+	for ticker in tickers:
+		try:
+			result = tsl_lib.db.load_recent(ticker, tsl_lib.intervals)
+		except Exception:
+			# One stock failing (e.g. a Tornsy hiccup) shouldn't stop the bot starting
+			tsl_lib.util.write_log("[WARNING] Loading recent prices failed for " + ticker + ":\n" + traceback.format_exc(), current_day)
+			continue
+		if result is None:
+			tsl_lib.util.write_log("[WARNING] Tornsy could not be reached for " + ticker + "; its missing prices will be fetched in the background.", current_day)
+	tsl_lib.util.write_log("[INFO] Loaded recent prices for " + str(len(tickers)) + " stocks in " + _duration(time.time() - started) + ".", current_day)
+
+def backfill_history():
+	"""Background thread: fetch the minutes load_recent_prices() left pending, retrying while Tornsy is down."""
+	retry_every = 600
+	skip = set()  # stocks that hit an unexpected error; retried on the next start
+	while True:
+		paused = _backfill_pass(skip)
+		if not paused:
+			return
+		tsl_lib.util.write_log("[INFO] Backfill will retry " + ", ".join(paused) + " in " + _duration(retry_every) + ".", tsl_lib.util.current_date())
+		time.sleep(retry_every)
+
+def _backfill_pass(skip):
+	"""Backfill every stock with pending minutes. Returns the stocks paused by a Tornsy outage."""
+	# A full history is ~2000 requests per stock, so report at most this often
+	report_every = 15
+	paused = []
+	try:
+		tickers = [t for t in tsl_lib.stock_lut if t not in skip and tsl_lib.db.has_pending_backfill(t)]
+	except Exception:
+		tsl_lib.util.write_log("[WARNING] Could not check for missing price history:\n" + traceback.format_exc(), tsl_lib.util.current_date())
+		return paused
+	if not tickers:
+		return paused
+	started = time.time()
+	tsl_lib.util.write_log("[INFO] Fetching older price history for " + str(len(tickers)) + " stock(s) in the background.", tsl_lib.util.current_date())
 	for n, ticker in enumerate(tickers, start=1):
 		prefix = "[INFO] Backfill " + str(n) + "/" + str(len(tickers)) + " " + ticker + ": "
 		stock_started = time.time()
@@ -52,30 +87,33 @@ def backfill_db():
 
 		def progress(minutes, oldest):
 			now = time.time()
-			if now - last_report[0] < report_every or oldest is None:
+			if now - last_report[0] < report_every:
 				return
 			last_report[0] = now
 			back_to = datetime.datetime.fromtimestamp(oldest, datetime.timezone.utc).strftime("%Y-%m-%d")
-			tsl_lib.util.write_log(prefix + "fetched " + "{:,}".format(minutes) + " minutes, back to " + back_to + " (" + _duration(now - stock_started) + ")", current_day)
+			tsl_lib.util.write_log(prefix + "{:,}".format(minutes) + " minutes, back to " + back_to + " (" + _duration(now - stock_started) + ")", tsl_lib.util.current_date())
 
 		try:
-			written = tsl_lib.db.import_from_tornsy(ticker, tsl_lib.intervals, limit=n_times, progress=progress)
+			written = tsl_lib.db.backfill_pending(ticker, tsl_lib.intervals, progress=progress)
 		except Exception:
-			# One stock failing (e.g. a Tornsy hiccup) shouldn't stop the bot starting
-			tsl_lib.util.write_log("[WARNING] Backfill failed for " + ticker + ":\n" + traceback.format_exc(), current_day)
+			skip.add(ticker)
+			tsl_lib.util.write_log("[WARNING] Backfill failed for " + ticker + "; it will resume on the next start:\n" + traceback.format_exc(), tsl_lib.util.current_date())
 			continue
 		if written is None:
-			tsl_lib.util.write_log("[WARNING] Backfill skipped " + ticker + ": Tornsy could not be reached.", current_day)
+			paused.append(ticker)
+			tsl_lib.util.write_log("[WARNING] Backfill paused for " + ticker + ": Tornsy isn't responding. What was fetched is saved.", tsl_lib.util.current_date())
 			continue
 
 		elapsed = time.time() - started
 		remaining = len(tickers) - n
 		eta = (", about " + _duration(elapsed / n * remaining) + " left") if remaining else ""
-		tsl_lib.util.write_log(prefix + "saved " + "{:,}".format(written) + " minutes in " + _duration(time.time() - stock_started) + eta + ".", current_day)
-	tsl_lib.util.write_log("[INFO] Backfill finished in " + _duration(time.time() - started) + ".", current_day)
+		tsl_lib.util.write_log(prefix + "saved " + "{:,}".format(written) + " minutes in " + _duration(time.time() - stock_started) + eta + ".", tsl_lib.util.current_date())
+	tsl_lib.util.write_log("[INFO] Background backfill pass finished in " + _duration(time.time() - started) + ".", tsl_lib.util.current_date())
+	return paused
 
 if config.features["backfill"]:
-	backfill_db()
+	load_recent_prices()
+	threading.Thread(target=backfill_history, name="backfill", daemon=True).start()
 
 tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
 tornsy_data = None
