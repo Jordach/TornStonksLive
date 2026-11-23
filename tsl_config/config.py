@@ -25,7 +25,7 @@ client = ""
 json_data = ""
 
 # Scheduled daily/weekly swing suggestions (see tsl_core/analysis/swing.py)
-enable_suggestions = False
+enable_suggestions = True
 
 intents = discord.Intents(messages=True, guilds=True, reactions=True, dm_messages=True, dm_reactions=True, members=True)
 

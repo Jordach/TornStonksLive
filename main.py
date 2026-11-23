@@ -99,12 +99,12 @@ if config.enable_suggestions:
 	schedule.every().day.at("00:05", "UTC").do(suggests, "daily")
 	schedule.every().monday.at("00:10", "UTC").do(suggests, "weekly")
 
-enable_volatility = False
+enable_volatility = True
 if enable_volatility:
 	schedule.every().hour.at("00:45").do(check_volatility)
 	schedule.every().hour.at("30:45").do(check_volatility)
-	schedule.every().day.at("01:00:45").do(check_daily_volatility)
-	schedule.every().monday.at("01:00:45").do(check_weekly_volatility)
+	schedule.every().day.at("00:00:45").do(check_daily_volatility)
+	schedule.every().monday.at("00:01:45").do(check_weekly_volatility)
 
 schedule.every().minute.at(":15").do(get_latest_stocks)
 
