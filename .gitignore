@@ -138,6 +138,7 @@ admins.conf
 verify_api_keys.conf
 event_key.conf
 userdata*.csv
+userdata*.csv.migrated
 /graphs
 
 # No syncing of prediction data

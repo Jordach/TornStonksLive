@@ -19,17 +19,19 @@ async def ticker_autocomplete(interaction: discord.Interaction, current: str):
 		if current.upper() in t.upper()
 	][:25]  # Discord caps at 25 choices
 
+intervals = ["h1", "h2", "h4", "h6", "h12", "d1", "m30"]
+
 async def timeframe_autocomplete(interaction: discord.Interaction, current: str):
 	return [
 		app_commands.Choice(name=t, value=t)
-		for t in tsl_lib.intervals
+		for t in intervals
 		if current.lower() in t.lower()
 	][:25]
 
 @client.tree.command(name="predict", description="Predict a stock's performance.")
 @app_commands.describe(
 	ticker="Stock Ticker (IOU, SYM, ...)",
-	timeframe="Time Interval (m1, m5, h1, d1, ...)",
+	timeframe="Time Interval (h1, d1, ...)",
 	predictions="The number of future predicted intervals.",
 	samples="How many previous closing prices of prior intervals should be used to train the prediction model?"
 )
