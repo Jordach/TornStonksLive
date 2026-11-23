@@ -23,6 +23,7 @@ Discord, and its **New trader's guide** is the best place for new players to sta
 | `/notifications` | List your pending alerts. |
 | `/forget` · `/undo` · `/clear` | Remove alerts for a stock, your last alert, or all of them. |
 | `/paper buy` · `/paper sell` | Shares a sum of cash buys, or what shares sell for after Torn's 0.1% fee. |
+| `/benefit` | Shares and cost for a number of a stock's benefit blocks, what the reward is worth (energy/nerve/happy/points compared with items) and its return over 1, 3, 5 and 10 years. |
 | `/portfolio` | Your real Torn holdings and how each purchase is doing (needs `/apikey`). |
 | `/apikey` | Save, replace, check or remove your Torn API key (stored encrypted). |
 | `/glossary` | Search commands and terms; includes the new trader's guide. |

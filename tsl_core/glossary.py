@@ -339,6 +339,16 @@ ENTRIES = [
 		"related": ["amounts", "/portfolio"],
 	},
 	{
+		"key": "/benefit", "title": "/benefit: benefit blocks, cost and return", "category": "Commands",
+		"aliases": ["benefit", "benefits", "blocks", "dividend", "reward", "roi", "return on investment", "increment"],
+		"body": "Shows the shares and cash needed to hold a number of a stock's benefit blocks. Each block "
+			"needs double the shares of the one before, so 3 blocks take 1 + 2 + 4 = 7 times the requirement.\n\n"
+			"For active rewards it values each payout (cash as is, items at Torn market value, energy, nerve, "
+			"happiness and points against items that give the same) and shows what the payouts earn back "
+			"over 1, 3, 5 and 10 years. Passive perks don't stack and have no payout to value.",
+		"related": ["/stock", "/paper"],
+	},
+	{
 		"key": "/portfolio", "title": "/portfolio: your Torn holdings", "category": "Commands",
 		"aliases": ["portfolio", "holdings", "my stocks", "transactions"],
 		"body": "Lists the stocks you own in Torn, each purchase with how its price has changed since. Filter "

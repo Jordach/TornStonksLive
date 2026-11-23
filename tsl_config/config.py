@@ -433,6 +433,21 @@ def get_user_key(discord_id: str):
 		)
 		return None
  
+def get_public_key():
+	"""The bot's own public-access Torn API key (api_keys table), decrypted, or None if missing."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	cur.execute("SELECT encrypted_key FROM api_keys LIMIT 1")
+	row = cur.fetchone()
+	conn.close()
+	if row is None:
+		return None
+	try:
+		return _decrypt(row[0])
+	except Exception:
+		tsl_lib.util.write_log("[WARNING] Failed to decrypt the public Torn API key.", tsl_lib.util.current_date())
+		return None
+
 def has_user_key(discord_id: str) -> bool:
 	"""Check whether a user has a personal API key stored."""
 	conn = _get_db_connection()
