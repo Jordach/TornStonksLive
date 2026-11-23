@@ -147,7 +147,8 @@ def _benefit_embed(interaction, stock, items, point_price, blocks):
 	if passive:
 		embed.description = "**Passive:** " + info["description"] + " while you hold the shares."
 	else:
-		embed.description = "**Active:** " + info["description"] + " every " + str(frequency) + " days per block."
+		embed.description = "**Active:** " + _combined_reward(info["description"], blocks) + " every " + str(frequency) + " days" + \
+			(" (" + info["description"] + " per block)." if blocks > 1 else ".")
 
 	block_word = " block" if blocks == 1 else " blocks"
 	embed.add_field(
@@ -218,6 +219,21 @@ def _benefit_embed(interaction, stock, items, point_price, blocks):
 
 	_add_footer(embed, notes)
 	return embed
+
+
+def _combined_reward(description, blocks):
+	"""What all the blocks pay together, e.g. 3 blocks of "1x Drug Pack" -> "3x Drug Pack"."""
+	reward = benefits.parse_reward(description)
+	total = reward["amount"] * blocks
+	if reward["kind"] == "cash":
+		return _money(total)
+	if reward["kind"] == "item":
+		return str(total) + "x " + reward["name"]
+	if reward["kind"] == "stat":
+		return "{:,}".format(total) + " " + reward["name"]
+	if reward["kind"] == "points":
+		return "{:,}".format(total) + " points"
+	return description
 
 
 def _add_footer(embed, notes):
