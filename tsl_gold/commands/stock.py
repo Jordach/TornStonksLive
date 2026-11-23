@@ -31,7 +31,7 @@ async def timeframe_autocomplete(interaction: discord.Interaction, current: str)
 )
 @app_commands.autocomplete(ticker=ticker_autocomplete, timeframe=timeframe_autocomplete)
 async def stock(interaction: discord.Interaction, ticker: str, timeframe: str = "m1"):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=config.private_reply(interaction))
 
     ticker = ticker.upper()
     timestamp = timeframe.strip().lower()
@@ -83,7 +83,7 @@ async def stock(interaction: discord.Interaction, ticker: str, timeframe: str = 
                     else:
                         embed.add_field(name=":crown: Historic Investors (" + nicename + "):", value="N/A for time period.", inline=False)
                 embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/"+data["stock"]+".png")
-                await interaction.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))
                 return
         # Always answer the interaction, otherwise Discord shows "thinking..." forever
         await _stock_error(interaction, "Unknown Stock", "The stock `" + ticker + "` cannot be found.")
@@ -92,7 +92,7 @@ async def stock(interaction: discord.Interaction, ticker: str, timeframe: str = 
         embed = discord.Embed(title=":no_entry_sign: Unable to connect to Tornsy. :no_entry_sign:")
         embed.color = discord.Color.red()
         embed.add_field(name="Details:", value="The Tornsy API service might be down.")
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))
         return
 
 
@@ -108,4 +108,4 @@ async def _stock_error(interaction: discord.Interaction, title: str, details: st
     embed.color = discord.Color.red()
     client.set_author_interaction(interaction, embed)
     embed.add_field(name="Details:", value=details)
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))

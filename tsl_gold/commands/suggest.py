@@ -33,7 +33,7 @@ client = config.client
 	],
 )
 async def suggest_cmd(interaction: discord.Interaction, horizon: str = "daily", direction: str = "both", view: str = "picks", days: int = 90):
-	await interaction.response.defer()
+	await interaction.response.defer(ephemeral=config.private_reply(interaction))
 
 	used = "/suggest " + horizon + " " + direction + " " + view
 	try:
@@ -58,4 +58,4 @@ async def suggest_cmd(interaction: discord.Interaction, horizon: str = "daily", 
 		embed.add_field(name="Details:", value="Something went wrong generating suggestions.\nCommand used:\n\n```" + used + "```")
 
 	client.set_author_interaction(interaction, embed)
-	await interaction.followup.send(embed=embed)
+	await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))

@@ -41,7 +41,7 @@ async def timeframe_autocomplete(interaction: discord.Interaction, current: str)
 ])
 @app_commands.autocomplete(ticker=ticker_autocomplete, timeframe=timeframe_autocomplete)
 async def search(interaction: discord.Interaction, ticker: str, timeframe: str = "d1", mode: str = "all"):
-	await interaction.response.defer()
+	await interaction.response.defer(ephemeral=config.private_reply(interaction))
 
 	# Search for stocks
 	try:
@@ -68,7 +68,7 @@ async def search(interaction: discord.Interaction, ticker: str, timeframe: str =
 			name="Details:",
 			value="Something went wrong running the pattern scan.\nCommand used:\n\n```/search " + ticker + " " + timeframe + " " + mode + "```"
 		)
-		await interaction.followup.send(embed=err_embed)
+		await interaction.followup.send(embed=err_embed, ephemeral=config.private_reply(interaction))
 		return
 
 	# Build title and URLs
@@ -95,7 +95,7 @@ async def search(interaction: discord.Interaction, ticker: str, timeframe: str =
 		if ticker.lower() != "all":
 			embed.set_thumbnail(url="https://www.torn.com/images/v2/stock-market/logos/" + ticker.upper() + ".png")
 		embed.add_field(name="Results:", value="No candlestick patterns matched your criteria.")
-		await interaction.followup.send(embed=embed)
+		await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))
 		return
 
 	# Build embed(s) with overflow handling
@@ -128,14 +128,11 @@ async def search(interaction: discord.Interaction, ticker: str, timeframe: str =
 
 	embeds.append(current_embed)
 
-	# Send first embed as the followup, rest as regular messages
-	first = True
+	# Every embed goes out as a followup (not a channel post) so it stays private where
+	# the first one is
+	private = config.private_reply(interaction)
 	for emb in embeds:
-		if first:
-			await interaction.followup.send(embed=emb)
-			first = False
-		else:
-			await interaction.channel.send(embed=emb)
+		await interaction.followup.send(embed=emb, ephemeral=private)
 
 
 def _split_results(text, limit=1024):

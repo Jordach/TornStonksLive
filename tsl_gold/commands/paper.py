@@ -88,7 +88,7 @@ async def paper_buy(interaction: discord.Interaction, cash: str, ticker: str):
 	embed.add_field(name=":handshake: Purchaseable Shares:", value="{:,.0f}".format(total_shares) + " @ $" + str(data["price"]) + " per share.", inline=False)
 	embed.add_field(name=":credit_card: Money Spent:", value="$" + "{:,.0f}".format(total_money), inline=False)
 	embed.add_field(name=":dollar: Money Leftover:", value="$" + "{:,.0f}".format(money_remainder), inline=False)
-	await interaction.response.send_message(embed=embed)
+	await interaction.response.send_message(embed=embed, ephemeral=config.private_reply(interaction))
 
 
 @paper.command(name="sell", description="What would a number of shares sell for, before and after tax?")
@@ -116,7 +116,7 @@ async def paper_sell(interaction: discord.Interaction, shares: str, ticker: str)
 	embed.add_field(name=':handshake: Shares "Sold":', value="{:,}".format(shares) + " @ $" + str(data["price"]) + " per share.", inline=False)
 	embed.add_field(name=":dollar: Value of Shares Pre Tax:", value="$" + "{:,.0f}".format(pre_tax), inline=False)
 	embed.add_field(name=":money_with_wings: Value of Shares Post Tax:", value="$" + "{:,.0f}".format(post_tax), inline=False)
-	await interaction.response.send_message(embed=embed)
+	await interaction.response.send_message(embed=embed, ephemeral=config.private_reply(interaction))
 
 
 client.tree.add_command(paper)

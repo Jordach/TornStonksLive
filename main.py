@@ -16,6 +16,7 @@ import tsl_bot.bot as tsl_bot
 config.read_token()
 config.read_admins()
 config.read_user_alerts()
+config.read_command_channels()
 # Features first: they decide whether the channel files are required
 config.read_features()
 config.read_alerts()

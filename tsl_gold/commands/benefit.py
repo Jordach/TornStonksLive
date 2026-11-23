@@ -105,7 +105,7 @@ async def benefit(interaction: discord.Interaction, ticker: str, number_of_block
 		await interaction.response.send_message(":no_entry_sign: The stock `" + ticker + "` cannot be found.", ephemeral=True)
 		return
 
-	await interaction.response.defer()
+	await interaction.response.defer(ephemeral=config.private_reply(interaction))
 	try:
 		stocks, items, point_price = await _torn_data()
 	except TornError as err:
@@ -117,7 +117,7 @@ async def benefit(interaction: discord.Interaction, ticker: str, number_of_block
 		await _error(interaction, "No Benefit Found", "Torn didn't return a benefit for `" + ticker + "`.")
 		return
 
-	await interaction.followup.send(embed=_benefit_embed(interaction, stock, items, point_price, number_of_blocks))
+	await interaction.followup.send(embed=_benefit_embed(interaction, stock, items, point_price, number_of_blocks), ephemeral=config.private_reply(interaction))
 
 
 def _benefit_embed(interaction, stock, items, point_price, blocks):
@@ -246,4 +246,4 @@ async def _error(interaction, title, details):
 	embed.color = discord.Color.red()
 	client.set_author_interaction(interaction, embed)
 	embed.add_field(name="Details:", value=details)
-	await interaction.followup.send(embed=embed)
+	await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))

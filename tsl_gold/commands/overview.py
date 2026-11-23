@@ -28,7 +28,7 @@ async def timeframe_autocomplete(interaction: discord.Interaction, current: str)
 ])
 @app_commands.autocomplete(timeframe=timeframe_autocomplete)
 async def overview(interaction: discord.Interaction, mode: str, timeframe: str = "d1", candles: int = 7):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=config.private_reply(interaction))
 
     # Validate inputs
     if timeframe not in tsl_lib.intervals or timeframe == "m1":
@@ -36,7 +36,7 @@ async def overview(interaction: discord.Interaction, mode: str, timeframe: str =
         embed.color = discord.Color.red()
         embed.add_field(name="Details:", value="Supported intervals:\n`m5 m15 m30 h1 h2 h4 h6 h12 d1`")
         client.set_author_interaction(interaction, embed)
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))
         return
 
     if candles < 2:
@@ -96,7 +96,7 @@ async def overview(interaction: discord.Interaction, mode: str, timeframe: str =
         embed.color = discord.Color.orange()
         embed.add_field(name="Details:", value="Could not retrieve enough stock data for this scan. The local databases may still be populating.")
         client.set_author_interaction(interaction, embed)
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))
         return
 
     # Sort n slice
@@ -152,4 +152,4 @@ async def overview(interaction: discord.Interaction, mode: str, timeframe: str =
     embed.color = discord.Color.blue()
     embed.add_field(name=f"Top Stocks Sorted by % Change:", value=embed_str, inline=False)
     client.set_author_interaction(interaction, embed)
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))

@@ -2,6 +2,7 @@
 directory, so these tests run from a temporary folder."""
 import os
 import tempfile
+import types
 import unittest
 
 config = None
@@ -154,6 +155,70 @@ class LegacyAlertMigrationTests(unittest.TestCase):
 		config.read_user_alerts()
 		self.assertEqual(config.userdata["id"], [1])
 		self.assertFalse(os.path.exists("userdata.csv"))
+
+
+def _interaction(channel_id, guild_id=1, parent_id=None):
+	channel = types.SimpleNamespace(id=channel_id)
+	if parent_id is not None:
+		channel.parent_id = parent_id
+	return types.SimpleNamespace(guild_id=guild_id, channel_id=channel_id, channel=channel)
+
+
+class ReadCommandChannelsTests(unittest.TestCase):
+	path = "command_channels_test.conf"
+
+	def tearDown(self):
+		if os.path.exists(self.path):
+			os.remove(self.path)
+		config.command_channels.clear()
+
+	def _read(self, text):
+		with open(self.path, "w") as f:
+			f.write(text)
+		config.read_command_channels(self.path)
+		return list(config.command_channels)
+
+	def test_plain_and_legacy_lines(self):
+		self.assertEqual(self._read("# TSL\n1088569857437601895,!,channel\n\n123\n"), [1088569857437601895, 123])
+
+	def test_malformed_lines_skipped(self):
+		self.assertEqual(self._read("abc\n456, x\n"), [456])
+
+	def test_rereading_replaces(self):
+		self._read("1\n")
+		self.assertEqual(self._read("2\n"), [2])
+
+	def test_missing_file_created_empty(self):
+		config.read_command_channels(self.path)
+		self.assertEqual(config.command_channels, [])
+		self.assertTrue(os.path.exists(self.path))
+		with open(self.path) as f:
+			self.assertTrue(all(line.startswith("#") for line in f if line.strip()))
+
+
+class PrivateReplyTests(unittest.TestCase):
+	def setUp(self):
+		config.command_channels[:] = [100, 200]
+
+	def tearDown(self):
+		config.command_channels.clear()
+
+	def test_command_channel_is_public(self):
+		self.assertFalse(config.private_reply(_interaction(100)))
+
+	def test_other_channel_is_private(self):
+		self.assertTrue(config.private_reply(_interaction(300)))
+
+	def test_thread_follows_its_parent(self):
+		self.assertFalse(config.private_reply(_interaction(999, parent_id=200)))
+		self.assertTrue(config.private_reply(_interaction(999, parent_id=300)))
+
+	def test_dms_are_not_forced_private(self):
+		self.assertFalse(config.private_reply(_interaction(300, guild_id=None)))
+
+	def test_no_channels_configured_means_no_restriction(self):
+		config.command_channels.clear()
+		self.assertFalse(config.private_reply(_interaction(300)))
 
 
 if __name__ == "__main__":

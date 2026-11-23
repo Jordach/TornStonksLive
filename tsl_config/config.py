@@ -18,6 +18,8 @@ auto_userdata = {"id":[], "type":[], "stock":[], "timescale":[], "mute":[], "par
 
 alert_channels = {"id":[], "small":[], "medium":[], "large":[], "tiny":[]}
 suggestion_channels = {"id":[], "role":[]}
+# Channels where command replies may be public; see read_command_channels()
+command_channels = []
 bot_admins = []
 client = ""
 
@@ -213,6 +215,51 @@ def _read_id_rows(path, columns, template):
 			except ValueError:
 				tsl_lib.util.write_log("[WARNING] " + path + " line " + str(number) + " is malformed, skipping it: " + line, tsl_lib.util.current_date())
 	return rows
+
+COMMAND_CHANNELS_PATH = "command_channels.conf"
+
+def read_command_channels(path=COMMAND_CHANNELS_PATH):
+	"""
+	Load the channels where command replies may be posted publicly. Everywhere else in a
+	server, replies are private (ephemeral) whatever a command's own options say.
+	One channel ID per line; anything after a comma (the old text commands' prefix and
+	mode columns) is ignored. With no channels listed, replies aren't restricted.
+	"""
+	command_channels.clear()
+	if not os.path.exists(path):
+		with open(path, "w") as file:
+			file.write(
+				"# One channel ID per line. Command replies are public in these channels and\n"
+				"# private (only the user sees them) in every other server channel.\n"
+				"# With no channels listed, replies are public everywhere.\n"
+			)
+		tsl_lib.util.write_log("[INFO] Created " + path + "; add your command channel IDs to it.", tsl_lib.util.current_date())
+	else:
+		with open(path, "r") as file:
+			for number, line in enumerate(file, start=1):
+				line = line.strip()
+				if line == "" or line.startswith("#"):
+					continue
+				try:
+					command_channels.append(int(line.split(",")[0].strip()))
+				except ValueError:
+					tsl_lib.util.write_log("[WARNING] " + path + " line " + str(number) + " is malformed, skipping it: " + line, tsl_lib.util.current_date())
+
+	if len(command_channels) == 0:
+		tsl_lib.util.write_log("[INFO] No command channels configured; command replies are public in every channel.", tsl_lib.util.current_date())
+
+def private_reply(interaction):
+	"""
+	True when a command's reply must be private (ephemeral): in a server channel that isn't
+	in command_channels.conf, or a thread of one. Commands pass this as ephemeral= on every
+	reply, and options that would post publicly (sharing, "this channel") must not override it.
+	"""
+	if interaction.guild_id is None or len(command_channels) == 0:
+		return False
+	if interaction.channel_id in command_channels:
+		return False
+	parent_id = getattr(interaction.channel, "parent_id", None)
+	return parent_id not in command_channels
 
 # Call read_features() first: whether an empty file is fatal depends on the feature switches.
 def read_suggestions():

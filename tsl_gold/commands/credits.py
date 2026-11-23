@@ -21,4 +21,4 @@ async def credits(interaction: discord.Interaction):
 	embed = discord.Embed(title="Many Thanks To:", description=thanks_str[-4096:])
 	embed.color = discord.Color.purple()
 	client.set_author_interaction(interaction, embed)
-	await interaction.response.send_message(embed=embed)
+	await interaction.response.send_message(embed=embed, ephemeral=config.private_reply(interaction))

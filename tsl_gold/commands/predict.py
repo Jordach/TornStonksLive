@@ -35,7 +35,7 @@ async def timeframe_autocomplete(interaction: discord.Interaction, current: str)
 )
 @app_commands.autocomplete(ticker=ticker_autocomplete, timeframe=timeframe_autocomplete)
 async def predict(interaction: discord.Interaction, ticker: str, timeframe: str, predictions: int, samples: int = 2000):
-	await interaction.response.defer()
+	await interaction.response.defer(ephemeral=config.private_reply(interaction))
 
 	ticker = ticker.strip().upper()
 	timeframe = timeframe.strip().lower()
@@ -44,7 +44,7 @@ async def predict(interaction: discord.Interaction, ticker: str, timeframe: str,
 		err_embed.color = discord.Color.red()
 		client.set_author_interaction(interaction, err_embed)
 		err_embed.add_field(name="Details:", value="Unknown stock or timeframe.\nSupported timeframes:\n`" + " ".join(tsl_lib.intervals) + "`")
-		await interaction.followup.send(embed=err_embed)
+		await interaction.followup.send(embed=err_embed, ephemeral=config.private_reply(interaction))
 		return
 
 	# Each predicted step re-runs feature engineering, so cap it to keep runtimes sane
@@ -63,7 +63,7 @@ async def predict(interaction: discord.Interaction, ticker: str, timeframe: str,
 		client.set_author_interaction(interaction, err_embed)
 		err_embed.add_field(name="Details:", value="Something went wrong with generating prediction data.\nCommand used:\n\n```" + f"/predict {ticker} {timeframe} {predictions} {samples}" + "```")
 		err_embed.color = discord.Color.red()
-		await interaction.followup.send(embed=err_embed)
+		await interaction.followup.send(embed=err_embed, ephemeral=config.private_reply(interaction))
 		return
 
 	hlvc = graph_return[1]
@@ -98,7 +98,7 @@ async def predict(interaction: discord.Interaction, ticker: str, timeframe: str,
 	embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely the predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\nSmaller intervals are more prone to incorrect outcomes, try h1, h6 or d1 for improved results.\n\n**This bot is not sound advice.**", inline=False)
 
 	if isinstance(graph_return[0], BytesIO):
-		await interaction.followup.send(embed=embed, file=discord.File(graph_return[0], filename="prediction_graph.png"))
+		await interaction.followup.send(embed=embed, file=discord.File(graph_return[0], filename="prediction_graph.png"), ephemeral=config.private_reply(interaction))
 	else:
-		await interaction.followup.send(embed=embed)
+		await interaction.followup.send(embed=embed, ephemeral=config.private_reply(interaction))
 	return

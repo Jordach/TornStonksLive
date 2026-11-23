@@ -93,6 +93,10 @@ async def force_suggestions(interaction: discord.Interaction, horizon: str = "da
 	import tsl_bot.functions.suggest as suggest
 
 	live = destination == "channels"
+	# Outside the command channels a reply stays private, so "This Channel" becomes a preview
+	downgraded = destination == "here" and config.private_reply(interaction)
+	if downgraded:
+		destination = "preview"
 	if record is None:
 		# Test runs shouldn't skew the track record unless explicitly asked to
 		record = live
@@ -107,7 +111,7 @@ async def force_suggestions(interaction: discord.Interaction, horizon: str = "da
 
 		if destination == "preview":
 			await interaction.followup.send(embed=picks_embed, ephemeral=True)
-			where = "you (preview)"
+			where = "you (preview" + ("; this isn't a command channel" if downgraded else "") + ")"
 		elif destination == "here":
 			await interaction.channel.send(embed=picks_embed)
 			where = "this channel"
