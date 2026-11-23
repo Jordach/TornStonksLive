@@ -7,7 +7,7 @@ schedule
 ta
 cryptography
 requests
-xgboost
+xgboost>=2.0,<3.3  # 3.3+ needs Python 3.12; environment.yaml pins 3.10
 scipy
 TA-Lib
 pytz

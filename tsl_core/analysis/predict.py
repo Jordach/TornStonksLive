@@ -1,4 +1,5 @@
 import os
+import math
 import datetime
 import matplotlib
 # Headless backend: graphs are rendered off the main thread, which the default
@@ -7,8 +8,7 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.signal import savgol_filter
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import TimeSeriesSplit
 from xgboost import XGBRegressor
 from tsl_core.db import get_stock_from_db
 from io import BytesIO
@@ -26,260 +26,266 @@ def clamp_(val, min_val, max_val):
 		return val
 
 # ──────────────────────────────────────────────
-#  Denoising
-#  Torn stock prices are composites of multiple
-#  unknown real stocks with per-minute synthetic
-#  noise injected. We smooth before computing
-#  indicators so they reflect the real underlying
-#  composite trend rather than artificial jitter.
+#  Design notes
+#  Torn prices track hidden real-world stocks plus per-minute jitter, so they
+#  behave close to a random walk. The pipeline is built to be honest about that:
+#   • Every feature is causal (row t uses only prices up to t) and price-level
+#     free, computed on raw closes. No centred smoothing: a centred filter leaks
+#     future prices into features and target.
+#   • Targets are log returns, so trees are not capped by the training price range.
+#   • A few direct models at anchor horizons replace recursive feedback.
+#   • Skill is measured walk-forward against "no change" and "drift" baselines.
 # ──────────────────────────────────────────────
-def get_smoothing_window(interval):
-	"""
-	Return an appropriate Savitzky-Golay window size based on the
-	data interval. Shorter intervals have more noise and need
-	heavier smoothing; longer intervals are already cleaner.
-	"""
-	windows = {
-		"m1": 6, "m5": 5, "m15": 4, "m30": 3,
-		"h1": 3, "h2": 3, "h4": 2, "h6": 2,
-		"h12": 2, "d1": 2, "w1": 1
-	}
-	return windows.get(interval, 11)
 
-def denoise_ohlc(df, interval):
-	"""
-	Apply Savitzky-Golay smoothing to OHLC columns to strip
-	Torn's synthetic per-minute noise. Preserves the original
-	raw Close as 'Close_raw' for reference.
-	"""
-	window = get_smoothing_window(interval)
-	# Window must be odd and >= polyorder+1
-	if window % 2 == 0:
-		window += 1
-	# Need at least window data points
-	if len(df) < window:
-		return df
-
-	df["Close_raw"] = df["Close"].copy()
-	for col in ["Open", "High", "Low", "Close"]:
-		df[col] = savgol_filter(df[col], window_length=window, polyorder=2)
-	return df
+# Longest indicator window; rows before this have incomplete features.
+WARMUP = 100
+# Fraction points of the forecast horizon that get their own direct model.
+ANCHOR_FRACTIONS = (0.25, 0.5, 0.75, 1.0)
+MIN_TRAIN_ROWS = 150
+MAX_TREES = 800
+EARLY_STOPPING_ROUNDS = 50
 
 
 # ──────────────────────────────────────────────
-#  Feature Engineering
-#  Biased toward longer windows to ride above the
-#  noise floor. Short-period indicators (ROC-1,
-#  SMA-5) are omitted since they mostly capture
-#  synthetic jitter rather than real signal.
+#  Feature Engineering (causal, scale-free)
 # ──────────────────────────────────────────────
-def build_features(df):
+def build_features(df, has_ohlc=True):
 	"""
-	Build technical-indicator features from OHLC data.
-	Returns the dataframe with new columns appended.
+	Build causal, price-level-free features from raw OHLC data.
+	Every value at row t depends only on rows <= t, so computing features on
+	a prefix of the series gives identical rows (see tests/test_predict.py).
+	`has_ohlc` is False for m1, where the DB stores one price in all four
+	columns and candle-shape features would be constant zero.
+	Returns a new dataframe of feature columns aligned to df's index.
 	"""
-	close = df["Close"]
-	high = df["High"]
-	low = df["Low"]
-	open_ = df["Open"]
+	close = df["Close"].astype(float)
+	high = df["High"].astype(float)
+	low = df["Low"].astype(float)
+	open_ = df["Open"].astype(float)
+	log_close = np.log(close)
+	ret_1 = log_close.diff()
+	f = pd.DataFrame(index=df.index)
 
-	# Simple Moving Averages (longer windows only)
-	for window in [10, 20, 50, 100]:
-		df[f"sma_{window}"] = close.rolling(window).mean()
+	# Multi-horizon momentum
+	for k in [1, 3, 5, 10, 20, 50]:
+		f[f"logret_{k}"] = log_close - log_close.shift(k)
 
-	# Exponential Moving Averages (longer spans)
+	# Distance from moving averages
+	sma = {w: close.rolling(w).mean() for w in [10, 20, 50, 100]}
+	for w, s in sma.items():
+		f[f"close_to_sma{w}"] = close / s - 1
 	for span in [10, 20, 50]:
-		df[f"ema_{span}"] = close.ewm(span=span, adjust=False).mean()
+		f[f"close_to_ema{span}"] = close / close.ewm(span=span, adjust=False).mean() - 1
+	f["sma_20_50_diff"] = sma[20] / sma[50] - 1
+	f["sma_50_100_diff"] = sma[50] / sma[100] - 1
 
-	# Rate of Change (skip 1-period, too noisy)
-	for period in [5, 10, 20]:
-		df[f"roc_{period}"] = close.pct_change(period)
-
-	# RSI (14-period is already a good noise-resistant window)
+	# RSI (14)
 	delta = close.diff()
-	gain = delta.clip(lower=0)
-	loss = -delta.clip(upper=0)
-	avg_gain = gain.rolling(14).mean()
-	avg_loss = loss.rolling(14).mean()
+	avg_gain = delta.clip(lower=0).rolling(14).mean()
+	avg_loss = (-delta.clip(upper=0)).rolling(14).mean()
 	rs = avg_gain / avg_loss.replace(0, np.nan)
-	df["rsi_14"] = 100 - (100 / (1 + rs))
+	f["rsi_14"] = 100 - (100 / (1 + rs))
 
-	# MACD (12/26/9 are standard and work well post-denoise)
-	ema_12 = close.ewm(span=12, adjust=False).mean()
-	ema_26 = close.ewm(span=26, adjust=False).mean()
-	df["macd"] = ema_12 - ema_26
-	df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
-	df["macd_hist"] = df["macd"] - df["macd_signal"]
+	# MACD, normalised by price
+	macd = close.ewm(span=12, adjust=False).mean() - close.ewm(span=26, adjust=False).mean()
+	macd_signal = macd.ewm(span=9, adjust=False).mean()
+	f["macd"] = macd / close
+	f["macd_signal"] = macd_signal / close
+	f["macd_hist"] = (macd - macd_signal) / close
 
-	# Bollinger Bands (distance from bands, normalised)
-	bb_mid = close.rolling(20).mean()
+	# Bollinger Bands
+	bb_mid = sma[20]
 	bb_std = close.rolling(20).std()
-	df["bb_upper_dist"] = (close - (bb_mid + 2 * bb_std)) / close
-	df["bb_lower_dist"] = (close - (bb_mid - 2 * bb_std)) / close
-	df["bb_width"] = (4 * bb_std) / bb_mid
+	f["bb_upper_dist"] = (close - (bb_mid + 2 * bb_std)) / close
+	f["bb_lower_dist"] = (close - (bb_mid - 2 * bb_std)) / close
+	f["bb_width"] = (4 * bb_std) / bb_mid
 
-	# ATR (Average True Range)
+	# ATR, normalised by price
 	tr = pd.DataFrame({
 		"hl": high - low,
 		"hc": (high - close.shift(1)).abs(),
 		"lc": (low - close.shift(1)).abs()
 	}).max(axis=1)
-	df["atr_14"] = tr.rolling(14).mean()
+	f["atr_14"] = tr.rolling(14).mean() / close
 
-	# Price relative to moving averages (normalised)
-	df["close_to_sma20"] = (close - df["sma_20"]) / df["sma_20"]
-	df["close_to_sma50"] = (close - df["sma_50"]) / df["sma_50"]
-	df["close_to_sma100"] = (close - df["sma_100"]) / df["sma_100"]
+	# Realised volatility and a short/long regime ratio
+	for w in [10, 20, 50]:
+		f[f"vol_{w}"] = ret_1.rolling(w).std()
+	f["vol_ratio_10_50"] = f["vol_10"] / f["vol_50"].replace(0, np.nan)
+	f["zmom_20"] = f["logret_20"] / (f["vol_20"] * math.sqrt(20)).replace(0, np.nan)
 
-	# SMA crossover signals (trend direction)
-	df["sma_20_50_diff"] = (df["sma_20"] - df["sma_50"]) / df["sma_50"]
-	df["sma_50_100_diff"] = (df["sma_50"] - df["sma_100"]) / df["sma_100"]
+	# Position within the recent range (0 = at the low, 1 = at the high)
+	for w in [50, 100]:
+		lo = low.rolling(w).min()
+		hi = high.rolling(w).max()
+		f[f"range_pos_{w}"] = (close - lo) / (hi - lo).replace(0, np.nan)
 
-	# Candle body and range info (normalised)
-	df["candle_body"] = (close - open_) / close
-	df["candle_range"] = (high - low) / close
+	if has_ohlc:
+		f["candle_body"] = (close - open_) / close
+		f["candle_range"] = (high - low) / close
 
-	# Noise estimate: difference between raw and smoothed close
-	# gives the model a sense of current noise magnitude
-	if "Close_raw" in df.columns:
-		df["noise_magnitude"] = (df["Close_raw"] - close).abs() / close
-
-	return df
+	return f.replace([np.inf, -np.inf], np.nan)
 
 
-def get_feature_columns(df):
-	"""Return the list of feature column names (everything we engineered)."""
-	exclude = {"date", "Open", "High", "Low", "Close", "Close_raw", "sma", "target"}
-	return [c for c in df.columns if c not in exclude]
+def anchor_horizons(forecast):
+	"""Distinct horizons (in candles) that each get their own direct model."""
+	return sorted({max(1, math.ceil(forecast * frac)) for frac in ANCHOR_FRACTIONS})
 
 
-# ──────────────────────────────────────────────
-#  Multi-step recursive forecasting
-# ──────────────────────────────────────────────
-def recursive_forecast(model, scaler, last_row_features, forecast_steps, df_history, feature_cols, interval):
+def required_samples(forecast):
+	"""Candles needed for warm-up, the target shift and at least two backtest folds."""
+	return WARMUP + 2 * forecast + 400
+
+
+def _model_params(n_train):
+	# Shallower, more regularised trees on small samples, where depth mostly fits noise.
+	small = n_train < 1500
+	return dict(
+		max_depth=3 if small else 4,
+		min_child_weight=10 if small else 5,
+		learning_rate=0.05,
+		subsample=0.8,
+		colsample_bytree=0.7,
+		reg_alpha=0.5,
+		reg_lambda=5.0,
+		gamma=0.0,
+		objective="reg:absoluteerror",
+		tree_method="hist",
+		device="cpu",
+		n_jobs=-1,
+		verbosity=0,
+	)
+
+
+def _fit_early_stopped(X, y, gap):
 	"""
-	Predict `forecast_steps` into the future by feeding each prediction
-	back as the next close price and re-computing features.
-	
-	Applies EMA smoothing to the output to prevent synthetic noise
-	patterns from compounding across recursive steps.
+	Fit on X/y holding out the most recent slice as a validation set (separated
+	by `gap` rows so overlapping labels cannot leak). Returns (model, n_trees).
 	"""
-	hist = df_history.copy()
-	predictions = []
+	n = len(X)
+	n_val = max(30, n // 7)
+	val_start = n - n_val
+	train_end = val_start - gap
+	if train_end < MIN_TRAIN_ROWS:
+		# Too short to hold out a validation slice: use a fixed conservative size.
+		model = XGBRegressor(n_estimators=200, **_model_params(n))
+		model.fit(X, y, verbose=False)
+		return model, 200
+	model = XGBRegressor(n_estimators=MAX_TREES, early_stopping_rounds=EARLY_STOPPING_ROUNDS,
+		eval_metric="mae", **_model_params(train_end))
+	model.fit(X[:train_end], y[:train_end], eval_set=[(X[val_start:], y[val_start:])], verbose=False)
+	return model, int(model.best_iteration) + 1
 
-	for _ in range(forecast_steps):
-		row_scaled = scaler.transform(last_row_features.values.reshape(1, -1))
-		pred = model.predict(row_scaled)[0]
-		predictions.append(pred)
 
-		# Append the prediction as a new row and rebuild features
-		new_row = hist.iloc[-1].copy()
-		new_row["Open"] = hist["Close"].iloc[-1]
-		new_row["High"] = pred * 1.001
-		new_row["Low"] = pred * 0.999
-		new_row["Close"] = pred
-		new_row["sma"] = pred
-		if "Close_raw" in hist.columns:
-			new_row["Close_raw"] = pred
+def walk_forward_evaluate(X, y, horizon):
+	"""
+	Expanding-window backtest with a `horizon`-row gap between train and test.
+	Scores the model's return MAE against two baselines: zero return ("price
+	stays put") and drift (the training set's mean return).
+	Returns a dict of skill metrics and the median early-stopped tree count.
+	"""
+	n = len(X)
+	test_size = max(30, n // 10)
+	n_splits = 4
+	while n_splits >= 2 and n - n_splits * test_size - horizon < MIN_TRAIN_ROWS:
+		n_splits -= 1
+	if n_splits < 2:
+		raise ValueError(f"Not enough data to backtest a {horizon}-candle forecast ({n} usable rows).")
 
-		hist = pd.concat([hist, pd.DataFrame([new_row])], ignore_index=True)
-		# Re-denoise the extended history to keep indicators clean
-		hist = denoise_ohlc(hist, interval)
-		hist = build_features(hist)
-		last_row_features = hist[feature_cols].iloc[-1]
+	tss = TimeSeriesSplit(n_splits=n_splits, test_size=test_size, gap=horizon)
+	skills, skills_naive, hits, moves, baseline_hits, trees = [], [], 0, 0, 0, []
+	for train_idx, test_idx in tss.split(X):
+		model, n_trees = _fit_early_stopped(X[train_idx], y[train_idx], horizon)
+		trees.append(n_trees)
+		y_test = y[test_idx]
+		pred = model.predict(X[test_idx])
+		mae_model = np.mean(np.abs(y_test - pred))
+		mae_naive = np.mean(np.abs(y_test))
+		mae_drift = np.mean(np.abs(y_test - np.mean(y[train_idx])))
+		best_baseline = min(mae_naive, mae_drift)
+		skills.append(1 - mae_model / best_baseline if best_baseline > 0 else 0.0)
+		skills_naive.append(1 - mae_model / mae_naive if mae_naive > 0 else 0.0)
 
-	# Smooth the final forecast with EMA to remove step-to-step jitter
-	predictions = np.array(predictions)
-	smooth_span = max(3, len(predictions) // 10)
-	smoothed = pd.Series(predictions).ewm(span=smooth_span, adjust=False).mean().values
+		# Directional accuracy on moves big enough to matter
+		threshold = 0.25 * np.median(np.abs(y_test))
+		moved = np.abs(y_test) > threshold
+		hits += int(np.sum(np.sign(pred[moved]) == np.sign(y_test[moved])))
+		moves += int(np.sum(moved))
+		# Baseline: always call the training set's drift direction (knowable in advance)
+		drift_sign = 1.0 if np.mean(y[train_idx]) >= 0 else -1.0
+		baseline_hits += int(np.sum(np.sign(y_test[moved]) == drift_sign))
 
-	return smoothed
+	return {
+		"skill": float(np.median(skills)),
+		"skill_vs_no_change": float(np.median(skills_naive)),
+		"direction_accuracy": hits / moves if moves else 0.0,
+		"direction_baseline": baseline_hits / moves if moves else 0.0,
+		"folds": n_splits,
+		"n_trees": int(np.median(trees)),
+	}
+
+
+def skill_label(skill):
+	if skill < 0.01:
+		return "No edge"
+	if skill < 0.05:
+		return "Weak"
+	if skill < 0.15:
+		return "Moderate"
+	return "Strong"
+
+
+def forecast_returns(df, interval, forecast):
+	"""
+	Train direct log-return models on a raw OHLC dataframe and forecast
+	`forecast` candles ahead. Returns (path_returns, metrics) where
+	path_returns[i] is the predicted log return from the last close to step i
+	(path_returns[0] == 0), and metrics comes from walk_forward_evaluate.
+	"""
+	feats = build_features(df, has_ohlc=(interval != "m1"))
+	feature_cols = list(feats.columns)
+	log_close = np.log(df["Close"].astype(float))
+	# Drop only the warm-up rows. Other NaNs (e.g. a volatility ratio over a
+	# flat stretch) are left for XGBoost, which handles missing values natively.
+	valid = feats["close_to_sma100"].notna()
+
+	# Backtest at the full horizon: that is what the user asked about.
+	y_full = (log_close.shift(-forecast) - log_close)
+	rows = valid & y_full.notna()
+	if rows.sum() < MIN_TRAIN_ROWS + 60:
+		raise ValueError(f"Not enough data to train after feature engineering ({int(rows.sum())} rows).")
+	metrics = walk_forward_evaluate(feats[rows].values, y_full[rows].values, forecast)
+
+	# Refit each anchor horizon on all available rows, so the most recent
+	# candles inform the live forecast, using the backtest's tree count.
+	last_row = feats[feature_cols].iloc[[-1]].values
+	if not valid.iloc[-1]:
+		raise ValueError("Latest candle has incomplete features.")
+	anchors = anchor_horizons(forecast)
+	anchor_preds = [0.0]
+	for k in anchors:
+		y_k = log_close.shift(-k) - log_close
+		rows_k = valid & y_k.notna()
+		model = XGBRegressor(n_estimators=metrics["n_trees"], **_model_params(int(rows_k.sum())))
+		model.fit(feats[rows_k].values, y_k[rows_k].values, verbose=False)
+		anchor_preds.append(float(model.predict(last_row)[0]))
+
+	# Interpolate log returns between anchors for a smooth path.
+	path_returns = np.interp(np.arange(forecast + 1), [0] + anchors, anchor_preds)
+	return path_returns, metrics
 
 
 # ──────────────────────────────────────────────
 #  Main prediction function
 # ──────────────────────────────────────────────
 def predict_stock(ticker, interval, forecast, render_graphs, json_data, samples=2000):
-	nsamples = clamp_(samples, 300, 16000)
+	forecast = max(1, int(forecast))
+	# Long horizons need extra history for warm-up, targets and backtest folds.
+	nsamples = clamp_(max(int(samples), required_samples(forecast)), 300, 16000)
 	dt = get_stock_from_db(ticker, interval, limit=int(nsamples))
-
 	df = pd.DataFrame(data=dt)
 
-	# ── Denoise: strip Torn's synthetic per-minute noise ──
-	df = denoise_ohlc(df, interval)
-
-	# ── Feature engineering ──
-	df = build_features(df)
-
-	# Target: the close price `forecast` steps ahead
-	df["target"] = df["Close"].shift(-forecast)
-
-	# Drop rows with NaN from indicator warm-up and target shift
-	feature_cols = get_feature_columns(df)
-	df_clean = df.dropna(subset=feature_cols + ["target"]).copy()
-
-	if len(df_clean) < 100:
-		raise ValueError(f"Not enough data to train after feature engineering ({len(df_clean)} rows).")
-
-	X = df_clean[feature_cols].values
-	y = df_clean["target"].values
-
-	# ── Chronological split (no data leakage) ──
-	split_ratio = 0.85
-	split_idx = int(len(X) * split_ratio)
-	X_train, X_test = X[:split_idx], X[split_idx:]
-	y_train, y_test = y[:split_idx], y[split_idx:]
-
-	# ── Feature scaling ──
-	scaler = StandardScaler()
-	X_train_s = scaler.fit_transform(X_train)
-	X_test_s = scaler.transform(X_test)
-
-	# ── XGBoost ──
-	# Higher regularization (alpha/lambda) to resist fitting noise patterns
-	# Lower max_depth to prevent memorising noise-driven splits
-	model = XGBRegressor(
-		n_estimators=600,
-		max_depth=5,
-		learning_rate=0.04,
-		subsample=0.75,
-		colsample_bytree=0.7,
-		reg_alpha=0.5,
-		reg_lambda=2.0,
-		min_child_weight=5,
-		gamma=0.1,
-		objective="reg:squarederror",
-		n_jobs=-1,
-		verbosity=0
-	)
-	model.fit(
-		X_train_s, y_train,
-		eval_set=[(X_test_s, y_test)],
-		verbose=False
-	)
-
-	# ── Confidence: MAPE-based (0% = useless, 100% = perfect) ──
-	# R² can go arbitrarily negative and is meaningless to end users.
-	# Instead we use Mean Absolute Percentage Error on the test set:
-	#   confidence = clamp(1 - MAPE, 0, 1) * 100
-	# A MAPE of 0% error → 100% confidence, 100%+ error → 0% confidence.
-	y_pred_test = model.predict(X_test_s)
-	nonzero_mask = y_test != 0
-	if nonzero_mask.sum() > 0:
-		mape = np.mean(np.abs((y_test[nonzero_mask] - y_pred_test[nonzero_mask]) / y_test[nonzero_mask]))
-	else:
-		mape = 1.0
-	confidence = clamp_(1.0 - mape, 0.0, 1.0)
-
-	# ── Multi-step recursive forecast ──
-	# Use the tail of the full (non-cleaned) df so indicators are current
-	df_full = pd.DataFrame(data=dt)
-	df_full = denoise_ohlc(df_full, interval)
-	df_full = build_features(df_full)
-	last_features = df_full[feature_cols].iloc[-1]
-	prediction = recursive_forecast(
-		model, scaler, last_features, forecast + 1, df_full, feature_cols, interval
-	)
+	path_returns, metrics = forecast_returns(df, interval, forecast)
 
 	# ── Current price from json_data ──
 	price = 0
@@ -289,17 +295,26 @@ def predict_stock(ticker, interval, forecast, render_graphs, json_data, samples=
 			price = float(stock["price"])
 			name = stock["name"]
 			break
+	if price <= 0:
+		price = float(df["Close"].iloc[-1])
 
-	# ── Anchor predictions to the current known price ──
-	# Prepend the real price so the forecast line starts from
-	# a known point instead of the model's first blind guess.
-	prediction = np.insert(prediction, 0, price)
+	# Apply the predicted returns to the live price, so the forecast starts
+	# exactly at the current price with no jump.
+	prediction = price * np.exp(path_returns)
 
 	# ── Build hlvc result structure ──
 	hlvc = {}
 	hlvc["price"] = price
 	hlvc["ticker"] = ticker
-	hlvc["confidence"] = confidence
+	# Backtested skill against the better of the no-change and drift baselines.
+	# 0 means no better than assuming the price stays put.
+	hlvc["confidence"] = clamp_(metrics["skill"], 0.0, 1.0)
+	hlvc["skill"] = metrics["skill"]
+	hlvc["skill_label"] = skill_label(metrics["skill"])
+	hlvc["skill_vs_no_change"] = metrics["skill_vs_no_change"]
+	hlvc["direction_accuracy"] = metrics["direction_accuracy"]
+	hlvc["direction_baseline"] = metrics["direction_baseline"]
+	hlvc["folds"] = metrics["folds"]
 
 	hlvc["high"] = 0
 	hlvc["low"] = 1e10
@@ -321,19 +336,19 @@ def predict_stock(ticker, interval, forecast, render_graphs, json_data, samples=
 	for val in prediction:
 		dt["sma"].append(val)
 
-	# ── Timestamps ──
+	# ── Timestamps (TCT is UTC; the DB dates are formatted in UTC too) ──
 	period = int("".join(filter(str.isdigit, interval)))
 	period_ticks = []
-	current_time = datetime.datetime.utcnow().timestamp()
-	current_time_str = datetime.datetime.fromtimestamp(current_time).strftime('%H:%M:%S %d/%m/%y')
-	period_ticks.append(current_time_str)
+	utc = datetime.timezone.utc
+	current_time = datetime.datetime.now(utc).timestamp()
+	period_ticks.append(datetime.datetime.fromtimestamp(current_time, utc).strftime('%H:%M:%S %d/%m/%y'))
 
 	multipliers = {"m": 60, "h": 3600, "d": 86400, "w": 604800, "n": 26355200, "y": 31536000}
 	base = multipliers.get(interval[0], 60)
 
-	for i in range(2, 10):
-		ts = current_time + int(((base * (period * forecast)) / 9) * i)
-		period_ticks.append(datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S %d/%m/%y'))
+	for i in range(1, 9):
+		ts = current_time + int(((base * (period * forecast)) / 8) * i)
+		period_ticks.append(datetime.datetime.fromtimestamp(ts, utc).strftime('%H:%M:%S %d/%m/%y'))
 
 	# Number of trailing real candles to show before the prediction,
 	# tuned per interval to give useful context without overwhelming.
@@ -342,7 +357,7 @@ def predict_stock(ticker, interval, forecast, render_graphs, json_data, samples=
 		"h1": 12, "h2": 12, "h4": 12, "h6": 16,
 		"h12": 8, "d1": 7, "w1": 4
 	}
-	
+
 	file = ""
 	if render_graphs:
 		n_trailing = trailing_candles.get(interval, 12)

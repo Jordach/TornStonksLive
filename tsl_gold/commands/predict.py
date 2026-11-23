@@ -47,7 +47,7 @@ async def predict(interaction: discord.Interaction, ticker: str, timeframe: str,
 		await interaction.followup.send(embed=err_embed, ephemeral=config.private_reply(interaction))
 		return
 
-	# Each predicted step re-runs feature engineering, so cap it to keep runtimes sane
+	# Longer horizons need more history for training and backtests, so cap them
 	predictions = max(1, min(predictions, MAX_PREDICTIONS))
 
 	graph_return = ""
@@ -84,18 +84,17 @@ async def predict(interaction: discord.Interaction, ticker: str, timeframe: str,
 	vola_str += "Direction: **" + "{:+.2f}".format(hlvc["actual"]) + "%**"
 	embed.add_field(name="Volatility:", value=vola_str, inline=True)
 
-	conf_val = hlvc["confidence"] * 100
-	conf_str = "**" + "{:.2f}".format(conf_val) + "%**"
-	if conf_val < 35:
-		conf_str += " :warning:"
-	elif conf_val >= 80:
-		conf_str += " :white_check_mark:"
-	embed.add_field(name="Confidence:", value=conf_str, inline=True)
+	skill_str = "**" + hlvc["skill_label"] + "** (" + "{:+.1f}".format(hlvc["skill"] * 100) + "%)"
+	if hlvc["skill"] < 0.01:
+		skill_str += " :warning:"
+	skill_str += "\nDirection hit: **" + "{:.0f}".format(hlvc["direction_accuracy"] * 100) + "%**"
+	skill_str += " (baseline " + "{:.0f}".format(hlvc["direction_baseline"] * 100) + "%)"
+	embed.add_field(name="Backtested Skill:", value=skill_str, inline=True)
 
 	embed.add_field(name="Time Scale:", value="From: **" + ticks[0] + " TCT**\nTo: **" + ticks[8] + " TCT**", inline=True)
 
-	embed.add_field(name="Model:", value="XGBoost w/ technical indicators\n(SMA, EMA, RSI, MACD, Bollinger, ATR, ROC)", inline=False)
-	embed.add_field(name="Notes:", value="The closer confidence is to 100% the more likely the predictions are mostly accurate from current data. ~~Gamble~~ Invest responsibly.\n\nSmaller intervals are more prone to incorrect outcomes, try h1, h6 or d1 for improved results.\n\n**This bot is not sound advice.**", inline=False)
+	embed.add_field(name="Model:", value="XGBoost on log returns, direct multi-horizon\n(momentum, volatility, RSI, MACD, Bollinger, ATR, range position)", inline=False)
+	embed.add_field(name="Notes:", value="Skill is measured on " + str(hlvc["folds"]) + " walk-forward backtests: how much smaller the model's error was than simply assuming the price stays put (or keeps its average drift). 0% or below means **no edge**, which is normal: Torn prices behave close to a random walk.\n\n~~Gamble~~ Invest responsibly. **This bot is not sound advice.**", inline=False)
 
 	if isinstance(graph_return[0], BytesIO):
 		await interaction.followup.send(embed=embed, file=discord.File(graph_return[0], filename="prediction_graph.png"), ephemeral=config.private_reply(interaction))

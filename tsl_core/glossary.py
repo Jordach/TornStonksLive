@@ -289,8 +289,10 @@ ENTRIES = [
 		"aliases": ["predict", "prediction", "forecast", "xgboost"],
 		"body": "Trains a model (XGBoost) on a stock's past closing prices at the chosen candle size and charts "
 			"where it projects the next **predictions** candles (up to 200). **samples** is how many past "
-			"candles it learns from (default 2000).\n\nA rough projection that gets less reliable the further "
-			"out it goes. For backtested picks, use `/suggest`.",
+			"candles it learns from (default 2000); long forecasts automatically use more.\n\n"
+			"**Backtested Skill** compares the model with simply assuming the price stays put, over several "
+			"walk-forward tests. 0% or below means **no edge**, which is common: Torn prices behave close to a "
+			"random walk. For backtested picks, use `/suggest`.",
 		"related": ["timeframes", "/suggest"],
 	},
 	{
