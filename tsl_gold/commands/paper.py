@@ -58,7 +58,7 @@ async def _bad_number(interaction: discord.Interaction, err: numerics.NumericPar
 	await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-paper =app_commands.Group(name="paper", description="Simulate buying or selling Torn shares at the current price.")
+paper = app_commands.Group(name="paper", description="Simulate buying or selling Torn shares at the current price.")
 
 
 @paper.command(name="buy", description="How many shares can a given amount of cash buy?")

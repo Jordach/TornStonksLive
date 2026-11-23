@@ -97,7 +97,7 @@ async def _alert_error(interaction: discord.Interaction, details: str):
 	await interaction.followup.send(embed=err_embed, ephemeral=True)
 
 
-@client.tree.command(name="notifications", description="Lists your pending notifcations.")
+@client.tree.command(name="notifications", description="Lists your pending notifications.")
 @app_commands.describe(
 	mode="Type of Alert (Up, Down, Loss, All)",
 	ticker="Optional: only show alerts for this stock (IOU, SYM, ...)"
@@ -234,9 +234,7 @@ async def forget_me(interaction: discord.Interaction):
 @app_commands.choices(mode=[
 	app_commands.Choice(name="Up", value="up"),
 	app_commands.Choice(name="Down", value="down"),
-	app_commands.Choice(name="Loss", value="loss"),
-	app_commands.Choice(name="Up (Reaction)", value="up_react"),
-	app_commands.Choice(name="Down (Reaction)", value="down_react")
+	app_commands.Choice(name="Loss", value="loss")
 ])
 async def forget(interaction: discord.Interaction, ticker: str, mode: str = None, value: float = None):
 	await interaction.response.defer(ephemeral=True)

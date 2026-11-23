@@ -1,135 +1,99 @@
-# TornStonksLive
-TornStonks, but now a Discord bot.
+# TornStonks Live
 
-# Command Reference
-## Help Command:
-`!help`
+A Discord bot for the [Torn City](https://www.torn.com) stock market: live prices, price alerts by
+DM, chart pattern scans, forecasts, and daily TA-backed stock picks with a public track record.
+It's free for everyone.
 
-Gives a link to this part of the README.
+Price data comes from [Tornsy](https://tornsy.com) every minute and is kept in a local SQLite
+history, one database per stock.
 
-`!help command_name`
+## Commands
 
-## Stock Command:
-Displays detailed help for that command including arguments.
+Every command is a slash command. `/glossary` explains each one (and every term the bot uses) inside
+Discord, and its **New trader's guide** is the best place for new players to start.
 
-`!stock three_letter_stock_name`
+| Command | What it does |
+| --- | --- |
+| `/stock` | A stock's price, shares and investors, optionally compared with a timeframe (`h1`, `d1`, `w1`, `n1`) or a unix timestamp. |
+| `/overview` | Scan every stock for the biggest movers, or those near recent lows or highs. |
+| `/search` | Candle patterns and RSI / Stochastic / MACD readings on one stock, or `ALL`. |
+| `/suggest` | Today's Upswing and Buy the Dip picks, the full ranking, or the track record of past picks. |
+| `/predict` | An XGBoost price forecast chart. |
+| `/alert` | DM me when a stock goes up to, down to, or falls below a price (or a % from now). |
+| `/notifications` | List your pending alerts. |
+| `/forget` · `/undo` · `/clear` | Remove alerts for a stock, your last alert, or all of them. |
+| `/paper buy` · `/paper sell` | Shares a sum of cash buys, or what shares sell for after Torn's 0.1% fee. |
+| `/portfolio` | Your real Torn holdings and how each purchase is doing (needs `/apikey`). |
+| `/apikey` | Save, replace, check or remove your Torn API key (stored encrypted). |
+| `/glossary` | Search commands and terms; includes the new trader's guide. |
+| `/credits` | The people who've helped the bot along. |
 
-Displays detailed stock information about the stock chosen, by default, returns stock data from 1 hour, 1 day, 1 week and 1 month ago.
+Admin-only: `/stop` (shut down), `/sync` (push the command list to Discord) and
+`/force_suggestions` (run the daily/weekly suggestion post now, as a preview or live).
 
-`!stock three_letter_stock_name UNIX_timestamp`
+Number fields accept shorthand: `500k`, `1.5m`, `2b`, `1,000,000`.
 
-Displays stock information at the exact minute in Torn City Time.
+## Running the bot
 
-`!stock three_letter_stock_name m1`
+### Install
 
-Displays stock information relative to now, in minutes. Replace the 1 with any number, cannot be negative.
+With conda (recommended, since TA-Lib is easiest to install this way):
 
-`!stock three_letter_stock_name h1`
+```
+conda env create -f environment.yaml
+conda activate TSL
+```
 
-Displays stock information relative to now, in hours. Replace the 1 with any number, cannot be negative. `h1` is equal to `m60`.
+Or with pip, after installing the [TA-Lib C library](https://ta-lib.org/install/):
 
-`!stock three_letter_stock_name d1`
+```
+pip install -r requirements.txt
+```
 
-Displays stock information relative to now, in days. Replace the 1 with any number, cannot be negative. `d1` is equal to `h24`.
+The bot needs no privileged intents: in the [Discord developer portal](https://discord.com/developers/applications),
+**Server Members**, **Presence** and **Message Content** can all stay off.
 
-`!stock three_letter_stock_name w1`
+### Configure
 
-Displays stock information relative to now, in weeks. Replace the 1 with any number, cannot be negative. `w1` is equal to `d7`.
+Create these files next to `main.py`:
 
-`!stock three_letter_stock_name n1`
+| File | Contents |
+| --- | --- |
+| `settings.conf` | The bot token on the first line (see `settings_example.conf`). |
+| `admins.json` | `{"admins": [your_discord_id, ...]}` for the admin commands. |
+| `alert_channels.conf` | One line per channel: `channel_id,tiny_role_id,small_role_id,medium_role_id,large_role_id` for large-trade (whale) pings. Trades of $150bn+ ping the small role, $450bn+ add medium, $750bn+ add large; smaller trades ping the tiny role, or nothing if it's `0`. |
+| `suggestion_channels.conf` | One channel ID per line for the daily/weekly suggestion posts. |
 
-Displays stock information relative to now, in months. Replace the 1 with any number, cannot be negative. `n1` is equal to `d28`, `d30` or `d31`.
+Both channel files are created empty if missing. An empty one only stops startup when the feature
+that needs it is on: `suggestions=true` needs `suggestion_channels.conf`, `volatility=true` needs
+`alert_channels.conf`. Without alert channels, large-trade pings are simply not posted.
+| `features.conf` | Created on first run. Switches, one per line: `suggestions=true/false` (scheduled suggestion posts, default off), `volatility=true/false` (volatility posts, default off), `backfill=true/false` (catch up on missed price history at startup, default on). |
 
-`!stock three_letter_stock_name y1`
+Lines starting with `#` are comments. `encryption.key` (for stored API keys), `tsl_data.db`, and the
+`db/` and `logs/` folders are created automatically. Keep `encryption.key` safe and out of version
+control; without it, saved API keys can't be read.
 
-Displays stock information relative to now, in years. Replace the 1 with any number, cannot be negative. `y1` is equal to `d365`.
+### Start
 
-## Up and Down Command:
+```
+python main.py
+```
 
-`!up three_letter_stock_name value_to_reach`
+The first time, and after adding or changing commands, run `/sync` in Discord so the command list
+updates.
 
-`!down three_letter_stock_name value_to_reach`
+## Tests
 
-Sets up an automatic alert for when the specified stock value exceeds or falls under a specified value.
+```
+python -m unittest discover -s tests -t .
+```
 
-`!up three_letter_stock_name percentage %`
+The pattern tests need TA-Lib and are skipped without it.
 
-`!down three_letter_stock_name percentage %`
+## Project layout
 
-Sets a relative pricing alert to it's current price.
-
-## Buy and Sell Command:
-
-`!buy money_to_buy_shares_with three_letter_stock_name`
-
-Shows how many shares can be bought for the current price of a stock, includes leftover change from the purchase.
-
-`!sell num_of_shares three_letter_stock_name`
-
-Shows how much money you'd make for selling the specified number of shares for the chosen stock, includes pre and post stock exchange tax.
-
-## Notifications / Alerts:
-
-`!alerts`
-
-`!notifications`
-
-Displays all pending alerts and notifications. These two commands are interchangeable.
-
-`!alerts up/down`
-
-Displays all pending alerts that are either from the corresponding `!up` or `!down` command.
-
-`!alerts up/down three_letter_stock_name`
-
-Displays all pending alerts that are either from the corresponding `!up` or `!down` command and are also matching that stock ticker.
-
-## Forget:
-
-`!forgetme`
-
-Deletes all of your pending alerts from the bot's knowledge.
-
-`!forget three_letter_stock_name`
-
-Deletes all pending alerts for the provided stock ticker.
-
-`!forget three_letter_stock_name up/down`
-
-Deletes all pending alerts for the provided stock ticker that are also from the respective `!up` or `!down` command.
-
-`!forget three_letter_stock_name up/down value`
-
-Deletes any pending alert that matches the stock ticker, `!up` and `!down` command, and also the value.
-
-## Portfolio:
-
-### This command only works in Direct Messages with the bot. It will send you a DM if you execute this command in any server.
-
-`!portfolio torn_api_key`
-
-Lists all stocks that you own with all transactions with their change in price relative to now. All transactions for that stock are ordered newest first to oldest last.
-
-`!portfolio torn_api_key stock_ticker`
-
-Lists all transactions for the specified ticker.
-
-`!portfolio torn_api_key stock_ticker number_of_transactions`
-
-Lists `number_of_transactions` of the selected stock before stopping. If you have two or more transactions, and use a it'll show the most recent transaction.
-
-## Credits:
-
-`!credits`
-
-Lists what's contains in `thanks.md`.
-
-## SMA:
-
-`!sma`
-
-# Administration Commands:
-## Stop Command:
-
-`!stop`
-Stops the bot, requires your ID to be listed in `admins.conf`.
+- `main.py`: startup, the every-minute Tornsy update, and scheduled jobs.
+- `tsl_gold/commands/`: the slash commands (loaded automatically).
+- `tsl_bot/`: the Discord client, alert DMs, whale pings, volatility and suggestion posts.
+- `tsl_core/`: price databases, analysis (patterns, swing picks, forecasts), the glossary text and helpers.
+- `tsl_config/`: config files, feature switches and encrypted key storage.

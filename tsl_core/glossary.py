@@ -86,8 +86,9 @@ ENTRIES = [
 			"spiral towards zero.\n"
 			"• **Per-minute noise**: small random moves every minute disguise which real stocks a price "
 			"follows, so nobody can copy a real exchange and trade ahead of everyone else.\n\n"
-			"Torn doesn't publish the details. Its own guidance is that prices follow real-world stocks in the "
-			"same industries and should rise about 10% a year on average, with no guarantees.",
+			"Torn doesn't publish the details. Its announcement said prices follow real-world stocks in the "
+			"same industries, and estimated growth of about 10% a year in line with overall in-game inflation, "
+			"with no guarantees. Actual growth has been about 6.6% a year.",
 
 			"**What the price history shows**\n"
 			"• Every stock is worth more today than when the bot started tracking it. The typical gain is "
@@ -139,6 +140,9 @@ ENTRIES = [
 			"Each stock has a baseline price underneath it that it isn't allowed to fall through. Torn doesn't "
 			"publish the levels, but the floor means a Torn stock can't go the way of a bankrupt company and "
 			"drift towards zero.\n\n"
+			"Torn's announcement estimated growth of about 10% a year, in line with in-game inflation. Every "
+			"stock has actually grown at about 6.6% a year, steadily, which points to prices being held around "
+			"a set average or floor rather than left to wander.\n\n"
 			"**Why it makes stocks resilient**\n"
 			"• **Losses are capped.** However bad a run gets, a price can only fall so far, and the further it "
 			"falls the less room is left below.\n"
@@ -212,7 +216,8 @@ ENTRIES = [
 			"• **Treat it as free money.** Resilient isn't risk-free:\n"
 			"  – Recoveries can take months, and around two years after a 20% fall.\n"
 			"  – Money in a slow stock misses gains elsewhere (SYM has grown 0.3% a year).\n"
-			"  – Typical growth (6.6% a year) has been below Torn's 10% expectation.\n"
+			"  – Torn estimates in-game inflation at about 10% a year and stocks have grown about 6.6%, so "
+			"shares alone may not keep pace with rising prices in Torn.\n"
 			"  – Torn can change how the market works, as it did when it relaunched it in 2021.",
 		],
 		"related": ["resilience", "minimum price", "per-minute noise", "bot routine", "buy the dip"],
@@ -354,6 +359,12 @@ ENTRIES = [
 		"body": "Search the bot's commands and terms. Start typing in `term:` and pick from the list; partial "
 			"words work (e.g. `boll`, `hammer`, `alert`). Leave it blank to list everything.",
 		"related": ["/suggest", "/search", "chart signals"],
+	},
+	{
+		"key": "/credits", "title": "/credits: thanks", "category": "Commands",
+		"aliases": ["credits", "thanks", "donors", "contributors"],
+		"body": "Lists the people who have helped TornStonks Live along the way: testers, bug finders and donors.",
+		"related": ["/glossary"],
 	},
 	{
 		"key": "admin commands", "title": "Admin commands", "category": "Commands",
@@ -647,9 +658,9 @@ ENTRIES = [
 		"three long rising candles in a row, each opening inside the previous body and closing near its high.",
 		"steady buying over three periods; a strong reversal after a fall.",
 		["p_three_black_crows"]),
-	_candle("p_breakaway", "Breakaway", _BULL, [],
-		"five candles: a gap down that starts a fall lasting three candles, then a long rise that closes inside the gap.",
-		"the selling ran out of steam. /search only reports the bullish version.",
+	_candle("p_breakaway", "Breakaway", _TWO, ["bullish breakaway", "bearish breakaway"],
+		"five candles: a gap in the direction of the trend that runs on for three candles, then a long candle the other way that closes inside the gap. **Bullish** after a fall, **Bearish** after a rise.",
+		"the move ran out of steam and is turning.",
 		[]),
 	_candle("p_mat_hold", "Mat Hold", _BULL, [],
 		"in a rise, a long rising candle, a gap up, three small falling candles that stay above the first candle's low, then a long rise to a new high.",
@@ -663,21 +674,21 @@ ENTRIES = [
 		"a long fall; a second falling candle that makes a new low but has a smaller body; then a small rising candle closing below the second's close.",
 		"a rare sign that a bottom is forming.",
 		[]),
-	_candle("p_kicking", "Kicking", _BULL, ["kicker"],
-		"a falling candle with no wicks, then a rising candle with no wicks that gaps above it.",
-		"an abrupt switch from sellers to buyers. /search only reports the bullish version.",
+	_candle("p_kicking", "Kicking", _TWO, ["kicker", "bullish kicking", "bearish kicking"],
+		"two wickless candles in opposite directions with a gap between them. **Bullish**: a falling candle, then a rising one that gaps above it. **Bearish**: the reverse.",
+		"an abrupt switch of control between buyers and sellers.",
 		["p_marubozu"]),
 	_candle("p_ladder_bottom", "Ladder Bottom", _BULL, [],
 		"three falling candles each opening and closing lower, a fourth falling candle with an upper wick, then a rise opening above the fourth's body.",
 		"a reversal at the end of a long fall.",
 		[]),
-	_candle("p_abandoned_baby", "Abandoned Baby", _BULL, [],
-		"a long fall, a doji that gaps below it with no overlap, then a rise that gaps above the doji.",
-		"a rare, sharp reversal. /search only reports the bullish version.",
-		["p_morningstar", "p_doji"]),
-	_candle("p_tri_star", "Tri-Star", _BULL, ["tristar"],
-		"three dojis in a row, the middle one gapping below the other two.",
-		"repeated indecision after a fall, which can mark a turn. /search only reports the bullish version.",
+	_candle("p_abandoned_baby", "Abandoned Baby", _TWO, ["bullish abandoned baby", "bearish abandoned baby"],
+		"a long candle, a doji that gaps away from it with no overlap, then a long candle the other way that gaps back past the doji. **Bullish** after a fall, **Bearish** after a rise.",
+		"a rare, sharp reversal.",
+		["p_morningstar", "p_eveningstar", "p_doji"]),
+	_candle("p_tri_star", "Tri-Star", _TWO, ["tristar", "bullish tri-star", "bearish tri-star"],
+		"three dojis in a row, the middle one gapping beyond the other two: below them (**Bullish**, after a fall) or above them (**Bearish**, after a rise).",
+		"repeated indecision at the end of a move, which can mark a turn.",
 		["p_doji"]),
 	_candle("p_stick_sandwich", "Stick Sandwich", _BULL, [],
 		"a falling candle, a rising candle, then a falling candle that closes at the same price as the first.",

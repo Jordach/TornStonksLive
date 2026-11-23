@@ -161,3 +161,4 @@ encryption.key
 
 # Migrated JSON config
 admins.json
+features.conf

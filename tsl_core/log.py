@@ -5,6 +5,8 @@ def write_log(log, datestr):
 	ctime = datetime.now()
 	time_string = ctime.strftime("[%H:%M:%S] ")
 
+	# A fresh install has no logs folder yet
+	os.makedirs("logs", exist_ok=True)
 	with open("logs/"+datestr+".log", "a+") as file:
 		file.seek(0)
 		contents = file.read(100)
