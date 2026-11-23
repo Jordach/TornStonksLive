@@ -213,8 +213,26 @@ class PrivateReplyTests(unittest.TestCase):
 		self.assertFalse(config.private_reply(_interaction(999, parent_id=200)))
 		self.assertTrue(config.private_reply(_interaction(999, parent_id=300)))
 
-	def test_dms_are_not_forced_private(self):
-		self.assertFalse(config.private_reply(_interaction(300, guild_id=None)))
+	def _dm(self, discord_context):
+		import discord
+		interaction = _interaction(300, guild_id=None)
+		interaction.context = discord.app_commands.AppCommandContext._from_value([discord_context])
+		return interaction
+
+	def test_bot_dm_counts_as_command_channel(self):
+		# Discord's interaction context 1 is BOT_DM
+		self.assertFalse(config.private_reply(self._dm(1)))
+		self.assertFalse(config.private_reply(_interaction(300, guild_id=None)))  # no context sent
+
+	def test_bot_dm_without_context_field(self):
+		import discord
+		interaction = _interaction(300, guild_id=None)
+		interaction.context = discord.app_commands.AppCommandContext()
+		self.assertFalse(config.private_reply(interaction))
+
+	def test_group_dm_is_private(self):
+		# Context 2 is PRIVATE_CHANNEL: group DMs and DMs between users, seen by others
+		self.assertTrue(config.private_reply(self._dm(2)))
 
 	def test_no_channels_configured_means_no_restriction(self):
 		config.command_channels.clear()

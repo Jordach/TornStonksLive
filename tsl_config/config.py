@@ -253,9 +253,20 @@ def private_reply(interaction):
 	True when a command's reply must be private (ephemeral): in a server channel that isn't
 	in command_channels.conf, or a thread of one. Commands pass this as ephemeral= on every
 	reply, and options that would post publicly (sharing, "this channel") must not override it.
+
+	A DM with the bot counts as a command channel: only the user sees it anyway. Group DMs
+	and DMs between users (reachable only if the bot is ever user-installable) don't.
 	"""
-	if interaction.guild_id is None or len(command_channels) == 0:
+	# Discord's interaction context tells the bot's DM apart from other private channels;
+	# without it, a guild-less interaction can only be the bot's DM
+	context = getattr(interaction, "context", None)
+	other_private_channel = context is not None and context.private_channel
+	if interaction.guild_id is None and not other_private_channel:
 		return False
+	if len(command_channels) == 0:
+		return False
+	if interaction.guild_id is None:
+		return True
 	if interaction.channel_id in command_channels:
 		return False
 	parent_id = getattr(interaction.channel, "parent_id", None)

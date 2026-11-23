@@ -64,7 +64,7 @@ Create these files next to `main.py`:
 | `admins.json` | `{"admins": [your_discord_id, ...]}` for the admin commands. |
 | `alert_channels.conf` | One line per channel: `channel_id,tiny_role_id,small_role_id,medium_role_id,large_role_id` for large-trade (whale) pings. Trades of $150bn+ ping the small role, $450bn+ add medium, $750bn+ add large; smaller trades ping the tiny role, or nothing if it's `0`. |
 | `suggestion_channels.conf` | One line per channel: `channel_id` or `channel_id,role_id` for the suggestion (upswing / buy the dip) and volatility posts. The role, if given and not `0`, is pinged on volatility posts only; suggestion posts don't ping. |
-| `command_channels.conf` | One channel ID per line (lines like `channel_id,!,channel` from older installs still work). Command replies are public in these channels and their threads, and private (only the user sees them) in every other server channel, whatever a command's own options say. With none listed, replies are public everywhere. DMs are unaffected. |
+| `command_channels.conf` | One channel ID per line (lines like `channel_id,!,channel` from older installs still work). Command replies are public in these channels and their threads, and private (only the user sees them) in every other server channel, whatever a command's own options say. With none listed, replies are public everywhere. A DM with the bot counts as a command channel (only the user sees it); group DMs do not. |
 
 The channel files are created empty if missing. An empty one only stops startup when the feature
 that needs it is on: `suggestions=true` and `volatility=true` both need `suggestion_channels.conf`.
