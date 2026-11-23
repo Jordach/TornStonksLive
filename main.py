@@ -59,10 +59,14 @@ def backfill_history():
 	"""Background thread: fetch the minutes load_recent_prices() left pending, retrying while Tornsy is down."""
 	retry_every = 600
 	skip = set()  # stocks that hit an unexpected error; retried on the next start
+	state = config.backfill_state
 	while True:
 		paused = _backfill_pass(skip)
+		state["paused"] = paused
 		if not paused:
+			state["retry_at"] = None
 			return
+		state["retry_at"] = time.time() + retry_every
 		tsl_lib.util.write_log("[INFO] Backfill will retry " + ", ".join(paused) + " in " + _duration(retry_every) + ".", tsl_lib.util.current_date())
 		time.sleep(retry_every)
 
@@ -79,13 +83,25 @@ def _backfill_pass(skip):
 	if not tickers:
 		return paused
 	started = time.time()
-	tsl_lib.util.write_log("[INFO] Fetching older price history for " + str(len(tickers)) + " stock(s) in the background.", tsl_lib.util.current_date())
+	state = config.backfill_state
+	state.update(running=True, total=len(tickers), started=started, paused=[], retry_at=None)
+	try:
+		_backfill_stocks(tickers, skip, paused, started, report_every)
+	finally:
+		state.update(running=False, ticker=None, finished=time.time())
+	tsl_lib.util.write_log("[INFO] Background backfill pass finished in " + _duration(time.time() - started) + ".", tsl_lib.util.current_date())
+	return paused
+
+def _backfill_stocks(tickers, skip, paused, started, report_every):
+	state = config.backfill_state
 	for n, ticker in enumerate(tickers, start=1):
 		prefix = "[INFO] Backfill " + str(n) + "/" + str(len(tickers)) + " " + ticker + ": "
 		stock_started = time.time()
 		last_report = [stock_started]
+		state.update(position=n, ticker=ticker, minutes=0, oldest=None, stock_started=stock_started)
 
 		def progress(minutes, oldest):
+			state.update(minutes=minutes, oldest=oldest)
 			now = time.time()
 			if now - last_report[0] < report_every:
 				return
@@ -108,8 +124,6 @@ def _backfill_pass(skip):
 		remaining = len(tickers) - n
 		eta = (", about " + _duration(elapsed / n * remaining) + " left") if remaining else ""
 		tsl_lib.util.write_log(prefix + "saved " + "{:,}".format(written) + " minutes in " + _duration(time.time() - stock_started) + eta + ".", tsl_lib.util.current_date())
-	tsl_lib.util.write_log("[INFO] Background backfill pass finished in " + _duration(time.time() - started) + ".", tsl_lib.util.current_date())
-	return paused
 
 if config.features["backfill"]:
 	load_recent_prices()

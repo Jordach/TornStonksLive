@@ -38,6 +38,22 @@ FEATURE_DEFAULTS = {
 features = dict(FEATURE_DEFAULTS)
 enable_suggestions = features["suggestions"]
 
+# Background price history backfill, updated by main.py's backfill thread and shown by
+# /backfill. Times are epoch seconds.
+backfill_state = {
+	"running": False,       # a pass is in progress
+	"position": 0,          # stock being fetched, 1-based, of "total"
+	"total": 0,
+	"ticker": None,
+	"minutes": 0,           # minutes fetched for that stock so far
+	"oldest": None,         # oldest minute fetched for that stock so far
+	"stock_started": None,
+	"started": None,        # when the current or last pass started
+	"finished": None,       # when the last pass finished
+	"paused": [],           # stocks waiting on a Tornsy outage
+	"retry_at": None,
+}
+
 # Slash commands arrive as interactions whatever the intents, with the member (and their
 # server nickname) included; DMs and channel posts are REST calls. Only guilds is needed.
 intents = discord.Intents(guilds=True)

@@ -190,6 +190,20 @@ class BackfillTests(unittest.TestCase):
 		self.assertFalse(db.has_pending_backfill("TSB"))
 		self._assert_candles(later)
 
+	def test_summary_reports_first_last_and_pending(self):
+		self.assertEqual(db.backfill_summary("TSB"), (None, None, []))
+		self.assertFalse(os.path.exists(os.path.join("db", "db_tsb.db")))  # read-only: no file created
+
+		rows = _history(5)
+		self._serve(rows)
+		written, _ = db.load_recent("TSB", INTERVALS)
+		first, last, pending = db.backfill_summary("TSB")
+		self.assertEqual((first, last), (rows[-written][0], rows[-1][0]))
+		self.assertEqual(pending, [(None, first)])
+
+		db.backfill_pending("TSB", INTERVALS)
+		self.assertEqual(db.backfill_summary("TSB"), (rows[0][0], rows[-1][0], []))
+
 	def test_bad_interval_is_rejected(self):
 		with self.assertRaises(ValueError):
 			db.load_recent("TSB", ["m1; DROP TABLE m1"])

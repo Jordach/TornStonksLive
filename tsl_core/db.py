@@ -313,6 +313,29 @@ def load_recent(ticker, intervals, minutes=1440):
 		con.close()
 	return (0 if ts is None else len(ts), pending)
 
+def backfill_summary(ticker):
+	"""
+	(first_m1, last_m1, pending) for a stock, where pending is a list of (lo, hi) minute
+	ranges still to fetch (see backfill_pending). Read-only; (None, None, []) for a
+	stock with no data yet.
+	"""
+	path = _stock_path(_stock_name(ticker, []))
+	if not os.path.exists(path):
+		return (None, None, [])
+	con = sqlite3.connect("file:" + pathname2url(path) + "?mode=ro", uri=True, timeout=_BUSY_TIMEOUT)
+	try:
+		try:
+			first, last = con.execute("SELECT MIN(date), MAX(date) FROM m1").fetchone()
+		except sqlite3.OperationalError:
+			first, last = None, None  # no m1 table yet
+		try:
+			pending = con.execute("SELECT lo, hi FROM backfill_pending ORDER BY hi IS NULL DESC, hi DESC").fetchall()
+		except sqlite3.OperationalError:
+			pending = []  # never backfilled by this version
+	finally:
+		con.close()
+	return (first, last, pending)
+
 def has_pending_backfill(ticker):
 	"""Whether a stock has minute ranges left for backfill_pending()."""
 	path = _stock_path(_stock_name(ticker, []))

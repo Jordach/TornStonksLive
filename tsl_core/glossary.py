@@ -368,12 +368,14 @@ ENTRIES = [
 	},
 	{
 		"key": "admin commands", "title": "Admin commands", "category": "Commands",
-		"aliases": ["admin", "stop", "sync", "force_suggestions", "force suggestions"],
+		"aliases": ["admin", "stop", "sync", "force_suggestions", "force suggestions", "backfill"],
 		"body": "Only bot admins can use these.\n\n"
 			"• **/stop**: shuts the bot down cleanly\n"
 			"• **/sync**: pushes the slash command list to Discord after commands change\n"
 			"• **/force_suggestions**: runs the daily or weekly suggestion post now, as a private preview, in "
-			"the current channel, or live to the suggestion channels",
+			"the current channel, or live to the suggestion channels\n"
+			"• **/backfill**: shows the price history backfill: whether it's running and how far it has got, "
+			"and each stock's first and last stored minute",
 		"related": ["/suggest"],
 	},
 
