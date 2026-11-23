@@ -290,6 +290,8 @@ ENTRIES = [
 		"body": "Trains a model (XGBoost) on a stock's past closing prices at the chosen candle size and charts "
 			"where it projects the next **predictions** candles (up to 200). **samples** is how many past "
 			"candles it learns from (default 2000); long forecasts automatically use more.\n\n"
+			"The **likely close range** (shaded on the chart) is where the price should land about 80% of "
+			"the time, with the hit rate it achieved on recent history.\n\n"
 			"**Backtested Skill** compares the model with simply assuming the price stays put, over several "
 			"walk-forward tests. 0% or below means **no edge**, which is common: Torn prices behave close to a "
 			"random walk. For backtested picks, use `/suggest`.",

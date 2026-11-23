@@ -76,13 +76,17 @@ async def predict(interaction: discord.Interaction, ticker: str, timeframe: str,
 
 	embed.add_field(name="Current Price:", value="**$" + "{:.2f}".format(hlvc["price"]) + "**", inline=True)
 
-	embed.add_field(name="Predicted High:", value="**$" + "{:.2f}".format(hlvc["high"]) + "**", inline=True)
+	price = hlvc["price"]
+	exp_str = "**$" + "{:.2f}".format(hlvc["expected"]) + "** (" + "{:+.2f}".format((hlvc["expected"] / price - 1) * 100) + "%)"
+	embed.add_field(name="Expected Close:", value=exp_str, inline=True)
 
-	embed.add_field(name="Predicted Low:", value="**$" + "{:.2f}".format(hlvc["low"]) + "**", inline=True)
-
-	vola_str = "Max Swing: ±**" + "{:.2f}".format(hlvc["volatility"]) + "%**\n"
-	vola_str += "Direction: **" + "{:+.2f}".format(hlvc["actual"]) + "%**"
-	embed.add_field(name="Volatility:", value=vola_str, inline=True)
+	if hlvc["band_low"] is not None:
+		level = int(hlvc["band_level"] * 100)
+		range_str = "**$" + "{:.2f}".format(hlvc["band_low"]) + " – $" + "{:.2f}".format(hlvc["band_high"]) + "**\n"
+		range_str += "(" + "{:+.1f}".format((hlvc["band_low"] / price - 1) * 100) + "% to " + "{:+.1f}".format((hlvc["band_high"] / price - 1) * 100) + "%)\n"
+		range_str += "Backtest hit rate: **" + "{:.0f}".format(hlvc["band_coverage"] * 100) + "%**"
+		range_str += " (" + str(hlvc["band_windows"]) + " independent periods)"
+		embed.add_field(name="Likely Close Range (" + str(level) + "%):", value=range_str, inline=True)
 
 	skill_str = "**" + hlvc["skill_label"] + "** (" + "{:+.1f}".format(hlvc["skill"] * 100) + "%)"
 	if hlvc["skill"] < 0.01:
@@ -94,7 +98,7 @@ async def predict(interaction: discord.Interaction, ticker: str, timeframe: str,
 	embed.add_field(name="Time Scale:", value="From: **" + ticks[0] + " TCT**\nTo: **" + ticks[8] + " TCT**", inline=True)
 
 	embed.add_field(name="Model:", value="XGBoost on log returns, direct multi-horizon\n(momentum, volatility, RSI, MACD, Bollinger, ATR, range position)", inline=False)
-	embed.add_field(name="Notes:", value="Skill is measured on " + str(hlvc["folds"]) + " walk-forward backtests: how much smaller the model's error was than simply assuming the price stays put (or keeps its average drift). 0% or below means **no edge**, which is normal: Torn prices behave close to a random walk.\n\n~~Gamble~~ Invest responsibly. **This bot is not sound advice.**", inline=False)
+	embed.add_field(name="Notes:", value="The **likely close range** is where the price should end up about " + str(int(hlvc["band_level"] * 100)) + "% of the time; the hit rate shows how often that held on recent history. The shaded area on the chart is that range over time.\n\n**Skill** is measured on " + str(hlvc["folds"]) + " walk-forward backtests: how much smaller the model's error was than simply assuming the price stays put. 0% or below means **no edge**, which is normal for Torn prices, so the expected close often sits near today's price.\n\n~~Gamble~~ Invest responsibly. **This bot is not sound advice.**", inline=False)
 
 	if isinstance(graph_return[0], BytesIO):
 		await interaction.followup.send(embed=embed, file=discord.File(graph_return[0], filename="prediction_graph.png"), ephemeral=config.private_reply(interaction))

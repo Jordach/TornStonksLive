@@ -59,7 +59,7 @@ class HorizonTests(unittest.TestCase):
 class ForecastTests(unittest.TestCase):
 	def test_path_starts_at_zero_and_has_one_point_per_step(self):
 		df = _ohlc_from_close(_random_walk(1500, seed=1))
-		path, metrics = predict.forecast_returns(df, "h1", 12)
+		path, metrics, _ = predict.forecast_returns(df, "h1", 12)
 		self.assertEqual(len(path), 13)
 		self.assertEqual(path[0], 0.0)
 		self.assertGreaterEqual(metrics["folds"], 2)
@@ -67,7 +67,7 @@ class ForecastTests(unittest.TestCase):
 	def test_random_walk_shows_no_edge(self):
 		"""A pure random walk is unpredictable; the score must not claim otherwise."""
 		df = _ohlc_from_close(_random_walk(3000, seed=2))
-		_, metrics = predict.forecast_returns(df, "h1", 10)
+		_, metrics, _ = predict.forecast_returns(df, "h1", 10)
 		self.assertLess(metrics["skill"], 0.05)
 
 	def test_predictable_series_shows_skill(self):
@@ -75,9 +75,37 @@ class ForecastTests(unittest.TestCase):
 		t = np.arange(3000)
 		rng = np.random.default_rng(3)
 		close = 500 * np.exp(0.05 * np.sin(t / 40) + rng.normal(0, 0.0005, len(t)))
-		_, metrics = predict.forecast_returns(_ohlc_from_close(close), "h1", 10)
+		_, metrics, _ = predict.forecast_returns(_ohlc_from_close(close), "h1", 10)
 		self.assertGreater(metrics["skill"], 0.3)
 		self.assertGreater(metrics["direction_accuracy"], metrics["direction_baseline"])
+
+	def test_band_brackets_forecast_and_widens(self):
+		df = _ohlc_from_close(_random_walk(3000, seed=4))
+		path, _, band = predict.forecast_returns(df, "h1", 24)
+		self.assertIsNotNone(band)
+		self.assertEqual(len(band["low"]), 25)
+		self.assertTrue(np.all(band["low"] <= path + 1e-12))
+		self.assertTrue(np.all(band["high"] >= path - 1e-12))
+		width = band["high"] - band["low"]
+		self.assertEqual(width[0], 0.0)
+		self.assertTrue(np.all(np.diff(width) >= -1e-12))
+
+	def test_band_coverage_is_close_to_target(self):
+		"""On a stationary random walk, the 80% band should hit roughly 80% of the time."""
+		coverages = []
+		for seed in range(5, 9):
+			df = _ohlc_from_close(_random_walk(4000, seed=seed))
+			_, _, band = predict.forecast_returns(df, "h1", 6)
+			coverages.append(band["coverage"])
+		self.assertGreater(np.mean(coverages), 0.7)
+		self.assertLess(np.mean(coverages), 0.92)
+
+	def test_weighted_conformal_quantile(self):
+		scores = np.arange(1, 101, dtype=float)
+		# With equal weights (huge half-life) the 80% level lands near the 81st score.
+		q = predict.weighted_conformal_quantile(scores, 0.8, half_life=1e9)
+		self.assertIn(q, (81.0, 82.0))
+		self.assertEqual(predict.weighted_conformal_quantile(scores[:3], 0.8, half_life=1e9), float("inf"))
 
 	def test_long_horizons_request_more_samples(self):
 		self.assertGreater(predict.required_samples(200), predict.required_samples(10))
