@@ -336,6 +336,57 @@ def backfill_summary(ticker):
 		con.close()
 	return (first, last, pending)
 
+# How far queue_history_gaps() has scanned m1: gaps below this were queued once already
+_META_SCHEMA = "CREATE TABLE IF NOT EXISTS backfill_meta (key text PRIMARY KEY, value integer)"
+
+def queue_history_gaps(ticker, min_gap_minutes=60):
+	"""
+	Find holes of at least `min_gap_minutes` in a stock's stored m1 history (an outage the
+	backfill never covered) and add them to backfill_pending, skipping any already pending.
+	Only minutes stored since the previous scan are checked, so a hole Tornsy can't fill
+	either is queued once, not on every scan.
+
+	Returns the queued (lo, hi) ranges: lo <= date < hi.
+	"""
+	path = _stock_path(_stock_name(ticker, []))
+	if not os.path.exists(path):
+		return []
+	con = sqlite3.connect(path, timeout=_BUSY_TIMEOUT)
+	try:
+		with con:
+			con.execute(_PENDING_SCHEMA)
+			con.execute(_META_SCHEMA)
+		try:
+			newest = con.execute("SELECT MAX(date) FROM m1").fetchone()[0]
+		except sqlite3.OperationalError:
+			return []  # no m1 table yet
+		if newest is None:
+			return []
+		row = con.execute("SELECT value FROM backfill_meta WHERE key = 'gaps_scanned_to'").fetchone()
+		scanned_to = row[0] if row else None
+
+		# Each hole sits between two stored minutes; start from the last minute already
+		# scanned so a hole straddling the previous scan is still found
+		holes = con.execute(
+			"SELECT date, nxt FROM (SELECT date, LEAD(date) OVER (ORDER BY date) AS nxt FROM m1 WHERE date >= ?) "
+			"WHERE nxt - date > ?",
+			(scanned_to if scanned_to is not None else 0, min_gap_minutes * 60),
+		).fetchall()
+		pending = con.execute("SELECT lo, hi FROM backfill_pending").fetchall()
+
+		queued = []
+		for before, after in holes:
+			lo, hi = before + 60, after
+			overlaps = any((plo is None or plo < hi) and (phi is None or phi > lo) for plo, phi in pending)
+			if not overlaps:
+				queued.append((lo, hi))
+		with con:
+			con.executemany("INSERT INTO backfill_pending (lo, hi) VALUES (?, ?)", queued)
+			con.execute("INSERT OR REPLACE INTO backfill_meta (key, value) VALUES ('gaps_scanned_to', ?)", (newest,))
+		return queued
+	finally:
+		con.close()
+
 def has_pending_backfill(ticker):
 	"""Whether a stock has minute ranges left for backfill_pending()."""
 	path = _stock_path(_stock_name(ticker, []))
@@ -353,7 +404,7 @@ def backfill_pending(ticker, intervals, progress=None, chunk_minutes=30 * 1440):
 	Fill the ranges load_recent() left pending, newest first, walking back through Tornsy
 	a day per request. Safe to run while the live feed writes. Each chunk of about
 	`chunk_minutes` is committed together with the range shrunk to what's left, so an
-	interrupted backfill resumes where it stopped on the next start.
+	interrupted backfill resumes where it stopped on the next run.
 
 	`progress(minutes_written_or_held, oldest_timestamp)` is called after each page.
 	Returns the minutes written, or None if Tornsy stopped responding (what was written

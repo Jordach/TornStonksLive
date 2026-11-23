@@ -55,11 +55,49 @@ def load_recent_prices():
 			tsl_lib.util.write_log("[WARNING] Tornsy could not be reached for " + ticker + "; its missing prices will be fetched in the background.", current_day)
 	tsl_lib.util.write_log("[INFO] Loaded recent prices for " + str(len(tickers)) + " stocks in " + _duration(time.time() - started) + ".", current_day)
 
-def backfill_history():
-	"""Background thread: fetch the minutes load_recent_prices() left pending, retrying while Tornsy is down."""
-	retry_every = 600
-	skip = set()  # stocks that hit an unexpected error; retried on the next start
+_backfill_running = threading.Lock()
+
+def start_backfill():
+	"""Start the background backfill thread, unless one is already running."""
+	if not _backfill_running.acquire(blocking=False):
+		return
+
+	def run():
+		try:
+			backfill_history()
+		except Exception:
+			tsl_lib.util.write_log("[WARNING] Background backfill stopped:\n" + traceback.format_exc(), tsl_lib.util.current_date())
+		finally:
+			_backfill_running.release()
+	threading.Thread(target=run, name="backfill", daemon=True).start()
+
+def find_history_gaps():
+	"""Queue holes in stored minute history (outages the backfill never covered) for backfilling."""
 	state = config.backfill_state
+	found = {}
+	try:
+		for n, ticker in enumerate(tsl_lib.stock_lut, start=1):
+			state.update(scanning=True, position=n, total=len(tsl_lib.stock_lut), ticker=ticker)
+			try:
+				gaps = tsl_lib.db.queue_history_gaps(ticker)
+			except Exception:
+				tsl_lib.util.write_log("[WARNING] Gap check failed for " + ticker + ":\n" + traceback.format_exc(), tsl_lib.util.current_date())
+				continue
+			if gaps:
+				found[ticker] = gaps
+	finally:
+		state.update(scanning=False, ticker=None)
+	if found:
+		minutes = sum((hi - lo) // 60 for gaps in found.values() for lo, hi in gaps)
+		count = sum(len(gaps) for gaps in found.values())
+		tsl_lib.util.write_log("[INFO] Found " + str(count) + " gap(s) in stored price history (" + "{:,}".format(minutes) + " minutes) across " + str(len(found)) + " stock(s); queued for backfill.", tsl_lib.util.current_date())
+
+def backfill_history():
+	"""Background thread: queue gaps in stored history, then fetch every pending range, retrying while Tornsy is down."""
+	retry_every = 600
+	skip = set()  # stocks that hit an unexpected error; retried on the next run (daily, or a restart)
+	state = config.backfill_state
+	find_history_gaps()
 	while True:
 		paused = _backfill_pass(skip)
 		state["paused"] = paused
@@ -113,7 +151,7 @@ def _backfill_stocks(tickers, skip, paused, started, report_every):
 			written = tsl_lib.db.backfill_pending(ticker, tsl_lib.intervals, progress=progress)
 		except Exception:
 			skip.add(ticker)
-			tsl_lib.util.write_log("[WARNING] Backfill failed for " + ticker + "; it will resume on the next start:\n" + traceback.format_exc(), tsl_lib.util.current_date())
+			tsl_lib.util.write_log("[WARNING] Backfill failed for " + ticker + "; it will resume on the next run:\n" + traceback.format_exc(), tsl_lib.util.current_date())
 			continue
 		if written is None:
 			paused.append(ticker)
@@ -127,7 +165,7 @@ def _backfill_stocks(tickers, skip, paused, started, report_every):
 
 if config.features["backfill"]:
 	load_recent_prices()
-	threading.Thread(target=backfill_history, name="backfill", daemon=True).start()
+	start_backfill()
 
 tornsy_api_address = "https://tornsy.com/api/stocks?interval=m1,h1,d1,w1,n1"
 tornsy_data = None
@@ -201,6 +239,11 @@ if config.features["volatility"]:
 	schedule.every().monday.at("00:01:45", "UTC").do(check_weekly_volatility)
 
 schedule.every().minute.at(":15").do(get_latest_stocks)
+
+# With the bot rarely restarting, also check daily for holes a live-feed outage left
+# while it kept running, and fill them (a no-op if a backfill is already running)
+if config.features["backfill"]:
+	schedule.every().day.at("03:30", "UTC").do(start_backfill)
 
 config.client = tsl_bot.Bot(intents=config.intents)
 # Auto-import all slash command modules so their decorators register

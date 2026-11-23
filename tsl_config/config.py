@@ -41,6 +41,7 @@ enable_suggestions = features["suggestions"]
 # Background price history backfill, updated by main.py's backfill thread and shown by
 # /backfill. Times are epoch seconds.
 backfill_state = {
+	"scanning": False,      # checking stored history for gaps (position/total/ticker)
 	"running": False,       # a pass is in progress
 	"position": 0,          # stock being fetched, 1-based, of "total"
 	"total": 0,

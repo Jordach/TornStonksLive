@@ -204,6 +204,63 @@ class BackfillTests(unittest.TestCase):
 		db.backfill_pending("TSB", INTERVALS)
 		self.assertEqual(db.backfill_summary("TSB"), (rows[0][0], rows[-1][0], []))
 
+	def _store(self, rows):
+		"""Store `rows` as a complete install would have them."""
+		self._serve(rows)
+		db.load_recent("TSB", INTERVALS)
+		db.backfill_pending("TSB", INTERVALS)
+
+	def test_hole_in_stored_history_is_queued_and_filled(self):
+		rows = _history(12)
+		start = next(i for i, r in enumerate(rows) if r[0] >= rows[0][0] + 3 * 86400)
+		end = next(i for i, r in enumerate(rows) if r[0] >= rows[start][0] + 2 * 86400 + 4321)
+		self._store(rows[:start] + rows[end:])  # an old outage: two days missing
+
+		self._serve(rows)  # Tornsy has them
+		queued = db.queue_history_gaps("TSB")
+		self.assertEqual(queued, [(rows[start - 1][0] + 60, rows[end][0])])  # short gaps (< 1h) are left alone
+		db.backfill_pending("TSB", INTERVALS)
+		self.assertFalse(db.has_pending_backfill("TSB"))
+		self._assert_candles(rows)
+
+	def test_hole_tornsy_lacks_is_queued_once(self):
+		rows = _history(8)
+		holey = rows[:3000] + rows[3200:]
+		self._store(holey)
+		self._serve(holey)  # Tornsy doesn't have those minutes either
+		self.assertEqual(len(db.queue_history_gaps("TSB")), 1)
+		db.backfill_pending("TSB", INTERVALS)
+		self.assertEqual(db.queue_history_gaps("TSB"), [])  # already scanned, not queued again
+		self.assertFalse(db.has_pending_backfill("TSB"))
+
+	def test_later_hole_is_found_by_the_next_scan(self):
+		rows = _history(10)
+		cut = len(rows) // 2
+		self._store(rows[:cut])
+		self.assertEqual(db.queue_history_gaps("TSB"), [])
+
+		# The live feed later misses two hours while the bot keeps running
+		later = rows[:cut + 300]
+		missed = rows[cut + 100:cut + 230]
+		for ts, price, _ in rows[cut:cut + 100] + rows[cut + 230:cut + 300]:
+			db.update_from_tornsy({"timestamp": ts, "data": [{"stock": "TSB", "price": price}]}, INTERVALS)
+		self._serve(later)
+		queued = db.queue_history_gaps("TSB")
+		self.assertEqual(len(queued), 1)
+		self.assertLessEqual(queued[0][0], missed[0][0])
+		self.assertGreater(queued[0][1], missed[-1][0])
+		db.backfill_pending("TSB", INTERVALS)
+		self._assert_candles(later)
+
+	def test_hole_already_pending_is_not_queued_twice(self):
+		rows = _history(20)
+		cut = len(rows) // 2
+		self._store(rows[:cut])
+		self._serve(rows)
+		db.load_recent("TSB", INTERVALS)  # long outage: the hole is already pending
+		self.assertEqual(len(self._pending()), 1)
+		self.assertEqual(db.queue_history_gaps("TSB"), [])
+
 	def test_bad_interval_is_rejected(self):
 		with self.assertRaises(ValueError):
 			db.load_recent("TSB", ["m1; DROP TABLE m1"])

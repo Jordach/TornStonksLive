@@ -16,6 +16,7 @@ from tsl_core.db import load_recent as _load_recent
 from tsl_core.db import backfill_pending as _backfill_pending
 from tsl_core.db import has_pending_backfill as _has_pending_backfill
 from tsl_core.db import backfill_summary as _backfill_summary
+from tsl_core.db import queue_history_gaps as _queue_history_gaps
 from tsl_core.db import update_from_tornsy as _update_from_tornsy
 from tsl_core.db import get_stock_df as _get_stock_df
 from tsl_core.db import suggestion_record as _suggestion_record
@@ -148,6 +149,7 @@ class db:
 	backfill_pending = _backfill_pending
 	has_pending_backfill = _has_pending_backfill
 	backfill_summary = _backfill_summary
+	queue_history_gaps = _queue_history_gaps
 	update_from_tornsy = _update_from_tornsy
 
 # Analytic functions

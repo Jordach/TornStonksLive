@@ -162,6 +162,9 @@ def _backfill_embed(rows, state, enabled, now):
 	if not enabled:
 		embed.color = discord.Color.light_grey()
 		status = "Off: `backfill=false` in features.conf, so missed prices aren't fetched from Tornsy."
+	elif state.get("scanning"):
+		embed.color = discord.Color.orange()
+		status = "Checking stored history for gaps: stock " + str(state["position"]) + "/" + str(state["total"]) + " **" + str(state["ticker"]) + "**."
 	elif state["running"]:
 		embed.color = discord.Color.orange()
 		status = "Running: stock " + str(state["position"]) + "/" + str(state["total"]) + " **" + str(state["ticker"]) + "**"
@@ -175,7 +178,7 @@ def _backfill_embed(rows, state, enabled, now):
 			status += " Retrying <t:" + str(int(state["retry_at"])) + ":R>."
 	elif pending_stocks:
 		embed.color = discord.Color.orange()
-		status = "Not running; " + str(len(pending_stocks)) + " stock(s) still have missing minutes. They resume on the next start."
+		status = "Not running; " + str(len(pending_stocks)) + " stock(s) still have missing minutes. They resume at the daily 03:30 UTC run or the next restart."
 	else:
 		embed.color = discord.Color.green()
 		status = "Idle: no missing minutes."

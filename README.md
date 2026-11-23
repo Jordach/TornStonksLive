@@ -88,6 +88,9 @@ day on a new install), which takes a few seconds, then the bot connects. Anythin
 missing is fetched in the background while live prices keep arriving. On a new install that's
 several years of history, a few hours in all; progress is logged per stock. An interrupted backfill
 resumes where it stopped on the next start, and a Tornsy outage is retried every 10 minutes.
+Stored history is also checked for holes of an hour or more (say, an outage the live feed missed
+while the bot kept running), at startup and daily at 03:30 UTC, and any found are filled the same way.
+`/backfill` shows the progress and each stock's first and last stored minute.
 
 ## Tests
 
