@@ -17,7 +17,7 @@ auto_userdata = {"id":[], "type":[], "stock":[], "timescale":[], "mute":[], "par
 # Note that params 1-5 are for read/write; memory, delay is during bot operation only.
 
 alert_channels = {"id":[], "small":[], "medium":[], "large":[], "tiny":[]}
-suggestion_channels = {"id":[]}
+suggestion_channels = {"id":[], "role":[]}
 bot_admins = []
 client = ""
 
@@ -183,7 +183,8 @@ def read_features():
 
 def _read_id_rows(path, columns, template):
 	"""
-	Read comma-separated integer IDs, `columns` per line, from `path`. A missing file is
+	Read comma-separated integer IDs, `columns` per line (an int, or a tuple of allowed
+	counts), from `path`. A missing file is
 	created holding `template` (comment lines). Blank lines and # comments are skipped;
 	malformed lines are logged and skipped.
 	"""
@@ -193,6 +194,7 @@ def _read_id_rows(path, columns, template):
 		tsl_lib.util.write_log("[INFO] Created " + path + "; add your channel IDs to it.", tsl_lib.util.current_date())
 		return []
 
+	allowed = columns if isinstance(columns, tuple) else (columns,)
 	rows = []
 	with open(path, "r") as file:
 		for number, line in enumerate(file, start=1):
@@ -201,7 +203,7 @@ def _read_id_rows(path, columns, template):
 				continue
 			data = [part.strip() for part in line.split(",")]
 			try:
-				if len(data) != columns:
+				if len(data) not in allowed:
 					raise ValueError
 				rows.append([int(part) for part in data])
 			except ValueError:
@@ -210,15 +212,19 @@ def _read_id_rows(path, columns, template):
 
 # Call read_features() first: whether an empty file is fatal depends on the feature switches.
 def read_suggestions():
-	for (channel_id,) in _read_id_rows(
-		"suggestion_channels.conf", 1,
-		"# One Discord channel ID per line for the daily/weekly suggestion posts.\n",
+	for row in _read_id_rows(
+		"suggestion_channels.conf", (1, 2),
+		"# One line per channel for the suggestion and volatility posts: channel_id[,role_id]\n"
+		"# The role is pinged on each post; leave it off or use 0 for no ping.\n",
 	):
-		suggestion_channels["id"].append(channel_id)
+		suggestion_channels["id"].append(row[0])
+		suggestion_channels["role"].append(row[1] if len(row) == 2 else 0)
 
 	if len(suggestion_channels["id"]) == 0:
 		if features["suggestions"]:
 			raise Exception("suggestions=true in features.conf but suggestion_channels.conf has no channel IDs.")
+		if features["volatility"]:
+			raise Exception("volatility=true in features.conf but suggestion_channels.conf has no channel IDs.")
 		tsl_lib.util.write_log("[INFO] No suggestion channels configured.", tsl_lib.util.current_date())
 
 def read_alerts():
@@ -234,8 +240,6 @@ def read_alerts():
 		alert_channels["large"].append(large)
 
 	if len(alert_channels["id"]) == 0:
-		if features["volatility"]:
-			raise Exception("volatility=true in features.conf but alert_channels.conf has no channels.")
 		tsl_lib.util.write_log("[WARNING] No alert channels configured; large trade pings will not be posted.", tsl_lib.util.current_date())
 
 # Read admins.json

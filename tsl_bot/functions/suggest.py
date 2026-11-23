@@ -413,12 +413,15 @@ def build_record_embed(horizon, direction="both", days=90):
 
 
 async def post_suggestions(self, embed):
-	"""Send to every configured suggestion channel. Returns how many succeeded."""
+	"""Send to every configured suggestion channel, pinging its role if set. Returns how many succeeded."""
 	sent = 0
-	for channel_id in config.suggestion_channels["id"]:
+	for channel_id, role_id in zip(config.suggestion_channels["id"], config.suggestion_channels["role"]):
 		try:
 			channel = await self.fetch_channel(channel_id)
-			await channel.send(embed=embed)
+			if role_id > 0:
+				await channel.send("<@&" + str(role_id) + ">", embed=embed)
+			else:
+				await channel.send(embed=embed)
 			sent += 1
 		except discord.DiscordException:
 			tsl_lib.util.write_log("[WARNING] Could not post suggestions to channel " + str(channel_id), tsl_lib.util.current_date())

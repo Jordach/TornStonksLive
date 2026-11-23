@@ -22,9 +22,8 @@ async def post_volatility(self, stocks, timestr, limit, timestart, perc):
 	embed.color = discord.Color.orange()
 	embed.set_thumbnail(url=config.stonks_png)
 	embed.add_field(name="Volatility for the last " + timestr + time, value=embed_str)
-	for key in range(0, len(config.alert_channels["id"])):
-		channel = await self.fetch_channel(config.alert_channels["id"][key])
-		await channel.send(embed=embed)
+	# Same channels and role ping as the suggestion posts
+	await self.post_suggestions(embed)
 
 def process_volatility(self):
 	stock_data = []

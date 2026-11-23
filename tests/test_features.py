@@ -84,21 +84,25 @@ class ChannelFileTests(unittest.TestCase):
 		config.features["suggestions"] = True
 		with self.assertRaises(Exception):
 			config.read_suggestions()
+		config.features["suggestions"] = False
 		config.features["volatility"] = True
 		with self.assertRaises(Exception):
-			config.read_alerts()
+			config.read_suggestions()
+		# Alert channels are never required
+		config.read_alerts()
 
 	def test_blank_and_malformed_lines_are_skipped(self):
 		with open("alert_channels.conf", "w") as f:
 			f.write("# comment\n\n1,2,3,4,5\n1,2,3\nabc,2,3,4,5\n 6, 0, 7, 8, 9 \n\n")
 		with open("suggestion_channels.conf", "w") as f:
-			f.write("# comment\n\n11\nnot_an_id\n12\n\n")
+			f.write("# comment\n\n11\nnot_an_id\n12, 99\n13,0\n1,2,3\n\n")
 		config.read_alerts()
 		config.read_suggestions()
 		self.assertEqual(config.alert_channels["id"], [1, 6])
 		self.assertEqual(config.alert_channels["tiny"], [2, 0])
 		self.assertEqual(config.alert_channels["large"], [5, 9])
-		self.assertEqual(config.suggestion_channels["id"], [11, 12])
+		self.assertEqual(config.suggestion_channels["id"], [11, 12, 13])
+		self.assertEqual(config.suggestion_channels["role"], [0, 99, 0])
 		# The file's comments are left alone
 		with open("suggestion_channels.conf") as f:
 			self.assertTrue(f.read().startswith("# comment"))
