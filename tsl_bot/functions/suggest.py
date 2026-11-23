@@ -412,13 +412,17 @@ def build_record_embed(horizon, direction="both", days=90):
 	return embed
 
 
-async def post_suggestions(self, embed):
-	"""Send to every configured suggestion channel, pinging its role if set. Returns how many succeeded."""
+async def post_suggestions(self, embed, ping=False):
+	"""
+	Send to every configured suggestion channel. With ping=True, also ping each
+	channel's role if it has one (volatility posts; the suggestions themselves
+	go out at a known time and don't ping). Returns how many succeeded.
+	"""
 	sent = 0
 	for channel_id, role_id in zip(config.suggestion_channels["id"], config.suggestion_channels["role"]):
 		try:
 			channel = await self.fetch_channel(channel_id)
-			if role_id > 0:
+			if ping and role_id > 0:
 				await channel.send("<@&" + str(role_id) + ">", embed=embed)
 			else:
 				await channel.send(embed=embed)

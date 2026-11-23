@@ -215,7 +215,7 @@ def read_suggestions():
 	for row in _read_id_rows(
 		"suggestion_channels.conf", (1, 2),
 		"# One line per channel for the suggestion and volatility posts: channel_id[,role_id]\n"
-		"# The role is pinged on each post; leave it off or use 0 for no ping.\n",
+		"# The role is pinged on volatility posts only; leave it off or use 0 for no ping.\n",
 	):
 		suggestion_channels["id"].append(row[0])
 		suggestion_channels["role"].append(row[1] if len(row) == 2 else 0)
