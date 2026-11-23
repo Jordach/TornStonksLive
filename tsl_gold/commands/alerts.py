@@ -234,9 +234,7 @@ async def forget_me(interaction: discord.Interaction):
 @app_commands.choices(mode=[
 	app_commands.Choice(name="Up", value="up"),
 	app_commands.Choice(name="Down", value="down"),
-	app_commands.Choice(name="Loss", value="loss"),
-	app_commands.Choice(name="Up (Reaction)", value="up_react"),
-	app_commands.Choice(name="Down (Reaction)", value="down_react")
+	app_commands.Choice(name="Loss", value="loss")
 ])
 async def forget(interaction: discord.Interaction, ticker: str, mode: str = None, value: float = None):
 	await interaction.response.defer(ephemeral=True)

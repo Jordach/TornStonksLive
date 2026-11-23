@@ -20,7 +20,8 @@ def _registered_commands():
 	"""Slash command names declared in tsl_gold/commands, read from source so Discord isn't needed."""
 	names = set()
 	for path in glob.glob(os.path.join(ROOT, "tsl_gold", "commands", "*.py")):
-		src = open(path, encoding="utf-8").read()
+		with open(path, encoding="utf-8") as f:
+			src = f.read()
 		names |= set(re.findall(r'tree\.command\(name="(\w+)"', src))
 		names |= set(re.findall(r'app_commands\.Group\(name="(\w+)"', src))
 	return names
