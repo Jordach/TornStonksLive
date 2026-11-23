@@ -24,6 +24,7 @@ from tsl_core.db import suggestion_get_open as _suggestion_get_open
 from tsl_core.db import suggestion_set_outcome as _suggestion_set_outcome
 from tsl_core.db import suggestion_get_record as _suggestion_get_record
 from tsl_core.log import write_log as _write_log
+import tsl_core.torn_feed as torn_feed
 
 # This file is intended to where you push functions from the library parts
 # and make them appear whole

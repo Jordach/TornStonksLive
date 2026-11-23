@@ -180,23 +180,68 @@ def run_on_bot_loop(func, description):
 			tsl_lib.util.write_log("[WARNING] Potential problem with " + description + ":\n" + traceback.format_exc(), current_day)
 	config.client.loop.call_soon_threadsafe(runner)
 
-def get_latest_stocks():
-	global current_day
-	current_day = tsl_lib.util.current_date()
+def _fetch_tornsy():
+	"""Tornsy's live feed, or None (after logging why) if it can't be used."""
 	global tornsy_data
 	try:
 		tornsy_data = requests.get(tornsy_api_address, timeout=20)
-	except:
+	except requests.RequestException:
 		tsl_lib.util.write_log("[WARNING] Tornsy appears to be having issues", current_day)
-		return
+		return None
+	if tornsy_data.status_code != 200:
+		tsl_lib.util.write_log("[WARNING] Tornsy returned error code: " + str(tornsy_data.status_code), current_day)
+		return None
+	try:
+		feed = json.loads(tornsy_data.text)
+	except ValueError:
+		tsl_lib.util.write_log("[WARNING] Tornsy returned something that isn't JSON", current_day)
+		return None
+	if not feed.get("data") or "timestamp" not in feed:
+		tsl_lib.util.write_log("[WARNING] Tornsy returned no stock data", current_day)
+		return None
+	return feed
 
-	if tornsy_data.status_code == 200:
-		config.json_data = json.loads(tornsy_data.text)
-		tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.intervals)
-		if config.bot_started:
-			run_on_bot_loop(tsl_bot.Bot.process_stockdata, "stock alerts")
-	else:
-		tsl_lib.util.write_log("[WARNING] Server returned error code: " + str(tornsy_data.status_code), current_day)
+def _fetch_torn_fallback():
+	"""Emergency feed from Torn's own API with the bot's key, or None (after logging why)."""
+	api_key, kind = config.get_fallback_key()
+	if api_key is None:
+		tsl_lib.util.write_log("[WARNING] No Torn API key stored for the emergency feed; set one with /botkey", current_day)
+		return None
+	# Only the previous Torn snapshot is useful for the m1 comparison; a Tornsy feed
+	# from before the outage could be minutes old
+	previous = config.json_data if config.live_source == "torn" else None
+	try:
+		return tsl_lib.torn_feed.fetch(api_key, previous)
+	except requests.RequestException:
+		# Don't log the exception: its message contains the URL, and so the key
+		tsl_lib.util.write_log("[WARNING] Torn's API also failed to respond (" + kind + " key)", current_day)
+	except (tsl_lib.torn_feed.TornFeedError, ValueError, KeyError) as err:
+		tsl_lib.util.write_log("[WARNING] Torn's API fallback failed (" + kind + " key): " + str(err), current_day)
+	return None
+
+def get_latest_stocks():
+	global current_day
+	current_day = tsl_lib.util.current_date()
+
+	feed, source = _fetch_tornsy(), "tornsy"
+	if feed is None:
+		feed, source = _fetch_torn_fallback(), "torn"
+		if feed is None:
+			return
+
+	if source != config.live_source and config.live_source is not None:
+		if source == "torn":
+			tsl_lib.util.write_log("[WARNING] Using Torn's API for live prices until Tornsy recovers", current_day)
+		else:
+			tsl_lib.util.write_log("[INFO] Tornsy is back; live prices are coming from it again", current_day)
+	elif source == "torn" and config.live_source is None:
+		tsl_lib.util.write_log("[WARNING] Tornsy is down at startup; using Torn's API for live prices", current_day)
+	config.live_source = source
+
+	config.json_data = feed
+	tsl_lib.db.update_from_tornsy(config.json_data, tsl_lib.intervals)
+	if config.bot_started:
+		run_on_bot_loop(tsl_bot.Bot.process_stockdata, "stock alerts")
 
 # Get initial data; if Tornsy is down the bot still starts and the every-minute
 # job below keeps retrying

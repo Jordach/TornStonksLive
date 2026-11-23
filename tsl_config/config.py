@@ -55,6 +55,10 @@ backfill_state = {
 	"retry_at": None,
 }
 
+# Where the live feed came from on the last successful update: "tornsy", or "torn" when
+# Tornsy was down and main.py fell back to Torn's own API. None until the first update.
+live_source = None
+
 # Slash commands arrive as interactions whatever the intents, with the member (and their
 # server nickname) included; DMs and channel posts are REST calls. Only guilds is needed.
 intents = discord.Intents(guilds=True)
@@ -447,6 +451,71 @@ def get_public_key():
 	except Exception:
 		tsl_lib.util.write_log("[WARNING] Failed to decrypt the public Torn API key.", tsl_lib.util.current_date())
 		return None
+
+def get_event_key():
+	"""The bot's "TSL Events" limited-access Torn API key (event_keys table), decrypted, or None if missing."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	cur.execute("SELECT encrypted_key FROM event_keys WHERE key_name = ?", (EVENT_KEY_NAME,))
+	row = cur.fetchone()
+	conn.close()
+	if row is None:
+		return None
+	try:
+		return _decrypt(row[0])
+	except Exception:
+		tsl_lib.util.write_log("[WARNING] Failed to decrypt the events Torn API key.", tsl_lib.util.current_date())
+		return None
+
+# The bot's own keys, as opposed to users' /apikey keys. The public key's single row has
+# always used this discord_id, and the events key this key_name.
+PUBLIC_KEY_OWNER = "_legacy_"
+EVENT_KEY_NAME = "event_key"
+BOT_KEY_KINDS = ("public", "event")
+
+def set_bot_key(kind: str, api_key: str):
+	"""Store (or replace) one of the bot's own Torn API keys, encrypted. kind is "public" or "event"."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	if kind == "public":
+		# api_keys' primary key includes the key itself, so clear the old row first
+		cur.execute("DELETE FROM api_keys")
+		cur.execute("INSERT INTO api_keys (discord_id, encrypted_key) VALUES (?, ?)", (PUBLIC_KEY_OWNER, _encrypt(api_key)))
+	elif kind == "event":
+		cur.execute("INSERT OR REPLACE INTO event_keys (key_name, encrypted_key) VALUES (?, ?)", (EVENT_KEY_NAME, _encrypt(api_key)))
+	else:
+		conn.close()
+		raise ValueError("Unknown bot key kind: " + str(kind))
+	conn.commit()
+	conn.close()
+
+def remove_bot_key(kind: str) -> bool:
+	"""Delete one of the bot's own Torn API keys. Returns True if one was stored."""
+	conn = _get_db_connection()
+	cur = conn.cursor()
+	if kind == "public":
+		cur.execute("DELETE FROM api_keys")
+	elif kind == "event":
+		cur.execute("DELETE FROM event_keys WHERE key_name = ?", (EVENT_KEY_NAME,))
+	else:
+		conn.close()
+		raise ValueError("Unknown bot key kind: " + str(kind))
+	deleted = cur.rowcount > 0
+	conn.commit()
+	conn.close()
+	return deleted
+
+def get_bot_key(kind: str):
+	"""Decrypted bot key of the given kind, or None."""
+	return get_public_key() if kind == "public" else get_event_key()
+
+def get_fallback_key():
+	"""Key for the emergency Torn feed: the public key, else the events key. (key, kind) or (None, None)."""
+	for kind in BOT_KEY_KINDS:
+		key = get_bot_key(kind)
+		if key:
+			return key, kind
+	return None, None
 
 def has_user_key(discord_id: str) -> bool:
 	"""Check whether a user has a personal API key stored."""

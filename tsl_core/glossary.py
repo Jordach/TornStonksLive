@@ -378,14 +378,16 @@ ENTRIES = [
 	},
 	{
 		"key": "admin commands", "title": "Admin commands", "category": "Commands",
-		"aliases": ["admin", "stop", "sync", "force_suggestions", "force suggestions", "backfill"],
+		"aliases": ["admin", "stop", "sync", "force_suggestions", "force suggestions", "backfill", "botkey", "bot key", "tornsy down"],
 		"body": "Only bot admins can use these.\n\n"
 			"• **/stop**: shuts the bot down cleanly\n"
 			"• **/sync**: pushes the slash command list to Discord after commands change\n"
 			"• **/force_suggestions**: runs the daily or weekly suggestion post now, as a private preview, in "
 			"the current channel, or live to the suggestion channels\n"
 			"• **/backfill**: shows the price history backfill: whether it's running and how far it has got, "
-			"and each stock's first and last stored minute",
+			"and each stock's first and last stored minute\n"
+			"• **/botkey**: sets, checks or removes the bot's own Torn API keys. The public key powers "
+			"/benefit, and either key keeps live prices coming from Torn's API while Tornsy is down",
 		"related": ["/suggest"],
 	},
 
