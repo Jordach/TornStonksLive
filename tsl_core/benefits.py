@@ -30,6 +30,11 @@ REFILL_ENERGY = 150
 ENERGY_DRINK_BOOST = 1.5
 ALCOHOL_BOOST = 2
 
+# A revive costs the reviver 25 energy, and revive factions sell contracted
+# revives for about $2m each, which gives energy a cash baseline (100 E = $8m)
+REVIVE_ENERGY = 25
+REVIVE_PRICE = 2000000
+
 # Rewards with no single market item behind them
 # Clothing Cache: TCC hands out one of these at random, so it's valued at their average
 CLOTHING_CACHES = (
@@ -133,6 +138,9 @@ def stat_references(stat, amount, prices, point_price, nerve_bar=None):
 		per_unit = point_price * REFILL_POINTS / bar
 		label = stat.capitalize() + " refill (" + str(REFILL_POINTS) + " points)"
 		refs.append((label, per_unit * amount, amount / bar))
+	if stat == "energy":
+		label = "Contracted revive (" + str(REVIVE_ENERGY) + " E each)"
+		refs.append((label, REVIVE_PRICE / REVIVE_ENERGY * amount, amount / REVIVE_ENERGY))
 	refs.sort(key=lambda r: r[1])
 	return refs
 
