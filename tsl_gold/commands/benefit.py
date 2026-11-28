@@ -235,8 +235,12 @@ def _stat_assumptions(reward, nerve_bar):
 	refill = str(benefits.REFILL_POINTS) + " point refill"
 	if reward["kind"] == "points" or (reward["kind"] == "stat" and reward["name"] == "energy"):
 		drinks = "{:g}".format((benefits.ENERGY_DRINK_BOOST - 1) * 100)
-		return "Assumes a " + str(benefits.REFILL_ENERGY) + " E donator bar (" + refill + ") and faction perks: energy drinks +" + drinks + "%. " + \
-			"Revives at " + _money(benefits.REVIVE_PRICE) + " each, the usual revive faction contract price."
+		setup = "Assumes a " + str(benefits.REFILL_ENERGY) + " E donator bar (" + refill + ") and faction perks: energy drinks +" + drinks + "%. "
+		revive = _money(benefits.REVIVE_PRICE) + " per contracted revive (ranked war hits earn " + \
+			_money(benefits.RW_HIT_RANGE[0]) + "-" + _money(benefits.RW_HIT_RANGE[1]) + " depending on activity)."
+		if reward["kind"] == "points":
+			return setup + "Revives are valued at " + revive
+		return setup + "Energy is valued as reviving income: " + revive
 	if reward["kind"] == "stat" and reward["name"] == "nerve":
 		text = "Assumes faction perks: alcohol gives " + "{:g}".format(benefits.ALCOHOL_BOOST) + "× nerve."
 		if nerve_bar:
