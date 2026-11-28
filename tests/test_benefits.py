@@ -74,7 +74,10 @@ class ValueRewardTests(unittest.TestCase):
 		self.assertAlmostEqual(value, 340000)
 		self.assertIn("Xanax", basis)
 		self.assertEqual([r[0] for r in refs][0], "Xanax")
-		self.assertEqual(len(refs), 3)
+		self.assertEqual(len(refs), 4)
+		revive = next(r for r in refs if r[0].startswith("Contracted revive"))
+		self.assertAlmostEqual(revive[1], 8000000)  # 100 E = 4 revives at $2m
+		self.assertAlmostEqual(revive[2], 4)
 		self.assertAlmostEqual(refs[0][2], 0.4)
 		refill = next(r for r in refs if r[0].startswith("Energy refill"))
 		self.assertIn("30 points", refill[0])

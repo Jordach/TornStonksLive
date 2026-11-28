@@ -235,7 +235,8 @@ def _stat_assumptions(reward, nerve_bar):
 	refill = str(benefits.REFILL_POINTS) + " point refill"
 	if reward["kind"] == "points" or (reward["kind"] == "stat" and reward["name"] == "energy"):
 		drinks = "{:g}".format((benefits.ENERGY_DRINK_BOOST - 1) * 100)
-		return "Assumes a " + str(benefits.REFILL_ENERGY) + " E donator bar (" + refill + ") and faction perks: energy drinks +" + drinks + "%."
+		return "Assumes a " + str(benefits.REFILL_ENERGY) + " E donator bar (" + refill + ") and faction perks: energy drinks +" + drinks + "%. " + \
+			"Revives at " + _money(benefits.REVIVE_PRICE) + " each, the usual revive faction contract price."
 	if reward["kind"] == "stat" and reward["name"] == "nerve":
 		text = "Assumes faction perks: alcohol gives " + "{:g}".format(benefits.ALCOHOL_BOOST) + "× nerve."
 		if nerve_bar:
