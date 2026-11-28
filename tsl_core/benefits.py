@@ -30,10 +30,16 @@ REFILL_ENERGY = 150
 ENERGY_DRINK_BOOST = 1.5
 ALCOHOL_BOOST = 2
 
-# A revive costs the reviver 25 energy, and revive factions sell contracted
-# revives for about $2m each, which gives energy a cash baseline (100 E = $8m)
+# Energy rewards are valued by what the energy earns, not what it costs to buy:
+# a revive costs the reviver 25 energy and revive factions sell contracted revives
+# for about $2m each (100 E = $8m). Ranked war hits, also 25 E, earn $2m-$5m
+# depending on activity, so this is the low, steady end. Energy regenerates but
+# items to gain more are limited, which makes it worth more than Xanax's price
+# suggests, and pegging to reviving income is the usual way to value it (e.g. MCS).
 REVIVE_ENERGY = 25
 REVIVE_PRICE = 2000000
+REVIVE_LABEL = "Contracted revive (" + str(REVIVE_ENERGY) + " E each)"
+RW_HIT_RANGE = (2000000, 5000000)
 
 # Rewards with no single market item behind them
 # Clothing Cache: TCC hands out one of these at random, so it's valued at their average
@@ -43,8 +49,8 @@ CLOTHING_CACHES = (
 )
 
 # What intangible rewards are compared against: (item name, amount the item gives
-# before perks, perk multiplier; Cannabis's 8-12 nerve taken as 10). The first item
-# of each is the yardstick the
+# before perks, perk multiplier; Cannabis's 8-12 nerve taken as 10). Except for
+# energy (valued by revives, above), the first item of each is the yardstick the
 # reward is valued by: the usual way to buy that stat in bulk. Cheap candy and
 # alcohol are limited by booster cooldown, so they'd undervalue the reward; they're
 # still listed for comparison.
@@ -139,8 +145,7 @@ def stat_references(stat, amount, prices, point_price, nerve_bar=None):
 		label = stat.capitalize() + " refill (" + str(REFILL_POINTS) + " points)"
 		refs.append((label, per_unit * amount, amount / bar))
 	if stat == "energy":
-		label = "Contracted revive (" + str(REVIVE_ENERGY) + " E each)"
-		refs.append((label, REVIVE_PRICE / REVIVE_ENERGY * amount, amount / REVIVE_ENERGY))
+		refs.append((REVIVE_LABEL, REVIVE_PRICE / REVIVE_ENERGY * amount, amount / REVIVE_ENERGY))
 	refs.sort(key=lambda r: r[1])
 	return refs
 
@@ -174,7 +179,7 @@ def value_reward(reward, items, point_price, nerve_bar=None):
 		refs = stat_references(reward["name"], reward["amount"], prices, point_price, nerve_bar)
 		if not refs:
 			return None, "no reference prices for " + reward["name"], []
-		yardstick = STAT_REFERENCES[reward["name"]][0][0]
+		yardstick = REVIVE_LABEL if reward["name"] == "energy" else STAT_REFERENCES[reward["name"]][0][0]
 		label, value, count = next((r for r in refs if r[0] == yardstick), refs[0])
 		return value, "worth " + format_count(count) + "× " + label, refs
 	return None, "no direct payout", []

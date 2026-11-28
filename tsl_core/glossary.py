@@ -347,12 +347,14 @@ ENTRIES = [
 		"aliases": ["benefit", "benefits", "blocks", "dividend", "reward", "roi", "return on investment", "increment"],
 		"body": "Shows the shares and cash needed to hold a number of a stock's benefit blocks. Each block "
 			"needs double the shares of the one before, so 3 blocks take 1 + 2 + 4 = 7 times the requirement.\n\n"
-			"For active rewards it values each payout (cash as is, items at Torn market value, energy, nerve, "
-			"happiness and points against items that give the same) and shows what the payouts earn back "
-			"over 1, 3, 5 and 10 years. Passive perks don't stack and have no payout to value.\n\n"
-			"Energy and nerve comparisons assume the usual setup: a 150 energy donator bar, 30 point refills, "
-			"and faction perks giving energy drinks 50% more energy and alcohol double the nerve. Nerve bars "
-			"vary, so give `nerve_bar` to compare nerve rewards with a nerve refill too.",
+			"For active rewards it values each payout (cash as is, items at market value, points at the points "
+			"market, nerve and happiness against items that give the same) and shows what the payouts earn "
+			"back over 1, 3, 5 and 10 years. Passive perks don't stack and have no payout to value.\n\n"
+			"Energy is valued as reviving income: a contracted revive pays about $2m for 25 energy, so "
+			"100 energy = $8m (ranked war hits earn $2m to $5m). It regenerates and items to gain more are "
+			"limited, so it's worth more than Xanax's price suggests.\n\n"
+			"Comparisons assume a 150 energy donator bar, 30 point refills, and faction perks: energy drinks "
+			"+50% and alcohol double nerve. Give `nerve_bar` to compare with a nerve refill too.",
 		"related": ["/stock", "/paper"],
 	},
 	{

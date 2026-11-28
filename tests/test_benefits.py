@@ -67,13 +67,13 @@ class ValueRewardTests(unittest.TestCase):
 		self.assertIn("Erotic DVD", basis)
 		self.assertEqual(refs[0][0], "Box of Chocolate Bars")  # listed cheapest first
 
-	def test_energy_valued_by_xanax(self):
+	def test_energy_valued_by_revives(self):
 		value, basis, refs = benefits.value_reward(benefits.parse_reward("100 energy"), ITEMS, 33333)
-		# Xanax: 850,000 / 250 per energy; Munster 1,400,000 / 30 (faction perk);
-		# refill 33,333 * 30 / 150 = 6,666.6
-		self.assertAlmostEqual(value, 340000)
-		self.assertIn("Xanax", basis)
-		self.assertEqual([r[0] for r in refs][0], "Xanax")
+		# Revives: 2,000,000 / 25 per energy; Xanax 850,000 / 250; Munster
+		# 1,400,000 / 30 (faction perk); refill 33,333 * 30 / 150 = 6,666.6
+		self.assertAlmostEqual(value, 8000000)
+		self.assertIn("Contracted revive", basis)
+		self.assertEqual([r[0] for r in refs][0], "Xanax")  # still listed cheapest first
 		self.assertEqual(len(refs), 4)
 		revive = next(r for r in refs if r[0].startswith("Contracted revive"))
 		self.assertAlmostEqual(revive[1], 8000000)  # 100 E = 4 revives at $2m
