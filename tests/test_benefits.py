@@ -6,6 +6,8 @@ ITEMS = {
 	"206": {"name": "Xanax", "market_value": 850000},
 	"530": {"name": "Can of Munster", "market_value": 1400000},
 	"180": {"name": "Bottle of Beer", "market_value": 900},
+	"197": {"name": "Cannabis", "market_value": 6000},
+	"984": {"name": "Bottle of Moonshine", "market_value": 20000},
 	"366": {"name": "Erotic DVD", "market_value": 3850000},
 	"370": {"name": "Drug Pack", "market_value": 4400000},
 	"368": {"name": "Lawyer's Business Card", "market_value": 270000},
@@ -67,17 +69,45 @@ class ValueRewardTests(unittest.TestCase):
 
 	def test_energy_valued_by_xanax(self):
 		value, basis, refs = benefits.value_reward(benefits.parse_reward("100 energy"), ITEMS, 33333)
-		# Xanax: 850,000 / 250 per energy; Munster 70,000; refill 33,333 * 25 / 150 = 5,555.5
+		# Xanax: 850,000 / 250 per energy; Munster 1,400,000 / 30 (faction perk);
+		# refill 33,333 * 30 / 150 = 6,666.6
 		self.assertAlmostEqual(value, 340000)
 		self.assertIn("Xanax", basis)
 		self.assertEqual([r[0] for r in refs][0], "Xanax")
 		self.assertEqual(len(refs), 3)
 		self.assertAlmostEqual(refs[0][2], 0.4)
+		refill = next(r for r in refs if r[0].startswith("Energy refill"))
+		self.assertIn("30 points", refill[0])
+		self.assertAlmostEqual(refill[1], 33333 * 30 / 150 * 100)
+		munster = next(r for r in refs if r[0] == "Can of Munster")
+		self.assertAlmostEqual(munster[2], 100 / 30)
+
+	def test_faction_perk_rounding(self):
+		self.assertEqual(benefits.boosted(25, benefits.ENERGY_DRINK_BOOST), 38)
+		self.assertEqual(benefits.boosted(20, benefits.ENERGY_DRINK_BOOST), 30)
+		self.assertEqual(benefits.boosted(5, benefits.ALCOHOL_BOOST), 10)
+		self.assertEqual(benefits.boosted(250, 1), 250)
+
+	def test_nerve_alcohol_doubled(self):
+		value, basis, refs = benefits.value_reward(benefits.parse_reward("50 nerve"), ITEMS, 33333)
+		self.assertAlmostEqual(value, 6000 * 5)  # Cannabis, no perk
+		self.assertIn("Cannabis", basis)
+		moonshine = next(r for r in refs if r[0] == "Bottle of Moonshine")
+		self.assertAlmostEqual(moonshine[2], 5)  # 10 nerve each with the perk
+		self.assertFalse(any("refill" in r[0] for r in refs))  # no bar size given
+
+	def test_nerve_refill_needs_bar(self):
+		_, _, refs = benefits.value_reward(benefits.parse_reward("50 nerve"), ITEMS, 33333, nerve_bar=100)
+		refill = next(r for r in refs if r[0].startswith("Nerve refill"))
+		self.assertAlmostEqual(refill[1], 33333 * 30 / 100 * 50)
+		self.assertAlmostEqual(refill[2], 0.5)
 
 	def test_points(self):
 		value, _, refs = benefits.value_reward(benefits.parse_reward("100 points"), ITEMS, 33333)
 		self.assertEqual(value, 3333300)
-		self.assertTrue(refs)
+		# 100 points = 100 / 30 refills of 150 energy = 500 energy = 2 Xanax
+		xanax = next(r for r in refs if r[0] == "Xanax")
+		self.assertAlmostEqual(xanax[2], 2)
 
 	def test_points_market_down(self):
 		self.assertIsNone(benefits.value_reward(benefits.parse_reward("100 points"), ITEMS, None)[0])

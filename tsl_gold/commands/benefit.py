@@ -97,9 +97,15 @@ async def ticker_autocomplete(interaction: discord.Interaction, current: str):
 @app_commands.describe(
 	ticker="Stock Ticker Symbol (PTS, SYM, ...)",
 	number_of_blocks="How many benefit blocks to hold (each one doubles the shares needed). Default 1.",
+	nerve_bar="Your max nerve, to compare nerve rewards with a nerve refill.",
 )
 @app_commands.autocomplete(ticker=ticker_autocomplete)
-async def benefit(interaction: discord.Interaction, ticker: str, number_of_blocks: app_commands.Range[int, 1, benefits.MAX_BLOCKS] = 1):
+async def benefit(
+	interaction: discord.Interaction,
+	ticker: str,
+	number_of_blocks: app_commands.Range[int, 1, benefits.MAX_BLOCKS] = 1,
+	nerve_bar: app_commands.Range[int, 1, 1000] = None,
+):
 	ticker = ticker.strip().upper()
 	if ticker not in tsl_func.stock_lut:
 		await interaction.response.send_message(":no_entry_sign: The stock `" + ticker + "` cannot be found.", ephemeral=True)
@@ -117,10 +123,10 @@ async def benefit(interaction: discord.Interaction, ticker: str, number_of_block
 		await _error(interaction, "No Benefit Found", "Torn didn't return a benefit for `" + ticker + "`.")
 		return
 
-	await interaction.followup.send(embed=_benefit_embed(interaction, stock, items, point_price, number_of_blocks), ephemeral=config.private_reply(interaction))
+	await interaction.followup.send(embed=_benefit_embed(interaction, stock, items, point_price, number_of_blocks, nerve_bar), ephemeral=config.private_reply(interaction))
 
 
-def _benefit_embed(interaction, stock, items, point_price, blocks):
+def _benefit_embed(interaction, stock, items, point_price, blocks, nerve_bar=None):
 	info = stock["benefit"]
 	requirement = int(info["requirement"])
 	frequency = int(info.get("frequency") or 0)
@@ -177,7 +183,7 @@ def _benefit_embed(interaction, stock, items, point_price, blocks):
 		return embed
 
 	reward = benefits.parse_reward(info["description"])
-	value, basis, references = benefits.value_reward(reward, items, point_price)
+	value, basis, references = benefits.value_reward(reward, items, point_price, nerve_bar)
 
 	if value is None:
 		embed.add_field(name=":gift: Payout value:", value="Can't be valued: " + basis + ".", inline=False)
@@ -196,6 +202,9 @@ def _benefit_embed(interaction, stock, items, point_price, blocks):
 		else:
 			heading = ":scales: Relative value (" + info["description"] + " bought another way):"
 		lines = ["• " + benefits.format_count(count) + "× " + label + ": " + _money(ref_value) for label, ref_value, count in references]
+		assumption = _stat_assumptions(reward, nerve_bar)
+		if assumption:
+			lines.append("*" + assumption + "*")
 		embed.add_field(name=heading, value="\n".join(lines), inline=False)
 
 	if value is not None and value > 0:
@@ -219,6 +228,20 @@ def _benefit_embed(interaction, stock, items, point_price, blocks):
 
 	_add_footer(embed, notes)
 	return embed
+
+
+def _stat_assumptions(reward, nerve_bar):
+	"""The player setup energy/nerve comparisons assume, or None for other rewards."""
+	refill = str(benefits.REFILL_POINTS) + " point refill"
+	if reward["kind"] == "points" or (reward["kind"] == "stat" and reward["name"] == "energy"):
+		drinks = "{:g}".format((benefits.ENERGY_DRINK_BOOST - 1) * 100)
+		return "Assumes a " + str(benefits.REFILL_ENERGY) + " E donator bar (" + refill + ") and faction perks: energy drinks +" + drinks + "%."
+	if reward["kind"] == "stat" and reward["name"] == "nerve":
+		text = "Assumes faction perks: alcohol gives " + "{:g}".format(benefits.ALCOHOL_BOOST) + "× nerve."
+		if nerve_bar:
+			return text + " The " + refill + " fills your " + str(nerve_bar) + " nerve bar."
+		return text + " Give `nerve_bar` to compare with a " + refill + "."
+	return None
 
 
 def _combined_reward(description, blocks):
