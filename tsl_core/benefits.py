@@ -18,9 +18,17 @@ ROI_YEARS = (1, 3, 5, 10)
 DAYS_PER_YEAR = 365
 MAX_BLOCKS = 20
 
-# Torn's points refill restores a full energy bar (150 with donator status) for 25 points
-REFILL_POINTS = 25
+# Torn's energy and nerve refills each cost 30 points and fill the bar. The energy
+# bar is taken as 150, the size with donator status that most players have. Nerve
+# bars differ too much between players to assume one, so the nerve refill is only
+# compared when the player gives their bar size.
+REFILL_POINTS = 30
 REFILL_ENERGY = 150
+
+# Faction perks most players have: energy drinks give 50% more energy (25 -> 38)
+# and alcohol twice the nerve (5 -> 10). Torn rounds the boosted amount.
+ENERGY_DRINK_BOOST = 1.5
+ALCOHOL_BOOST = 2
 
 # Rewards with no single market item behind them
 # Clothing Cache: TCC hands out one of these at random, so it's valued at their average
@@ -29,15 +37,16 @@ CLOTHING_CACHES = (
 	"Denim Cache", "Wannabe Cache", "Cutesy Cache",
 )
 
-# What intangible rewards are compared against: (item name, amount the item gives,
-# Cannabis's 8-12 nerve taken as 10). The first item of each is the yardstick the
+# What intangible rewards are compared against: (item name, amount the item gives
+# before perks, perk multiplier; Cannabis's 8-12 nerve taken as 10). The first item
+# of each is the yardstick the
 # reward is valued by: the usual way to buy that stat in bulk. Cheap candy and
 # alcohol are limited by booster cooldown, so they'd undervalue the reward; they're
 # still listed for comparison.
 STAT_REFERENCES = {
-	"energy": (("Xanax", 250), ("Can of Munster", 20), ("Can of Taurine Elite", 30)),
-	"nerve": (("Cannabis", 10), ("Bottle of Beer", 1), ("Bottle of Moonshine", 5)),
-	"happiness": (("Erotic DVD", 2500), ("Box of Chocolate Bars", 25), ("Pixie Sticks", 150)),
+	"energy": (("Xanax", 250, 1), ("Can of Munster", 20, ENERGY_DRINK_BOOST), ("Can of Taurine Elite", 30, ENERGY_DRINK_BOOST)),
+	"nerve": (("Cannabis", 10, 1), ("Bottle of Beer", 1, ALCOHOL_BOOST), ("Bottle of Moonshine", 5, ALCOHOL_BOOST)),
+	"happiness": (("Erotic DVD", 2500, 1), ("Box of Chocolate Bars", 25, 1), ("Pixie Sticks", 150, 1)),
 }
 
 
@@ -102,28 +111,38 @@ def _item_value(name, prices):
 	return None
 
 
-def stat_references(stat, amount, prices, point_price):
+def boosted(amount, boost):
+	"""What an item gives with a perk multiplier, rounded half up as Torn shows it (25 x 1.5 -> 38)."""
+	return math.floor(amount * boost + 0.5)
+
+
+def stat_references(stat, amount, prices, point_price, nerve_bar=None):
 	"""
 	What `amount` of a stat costs bought another way. Returns a list of
 	(label, value of the whole amount, how many of that item it equals), cheapest first.
+	The nerve refill is only included when `nerve_bar` (the player's max nerve) is given.
 	"""
 	refs = []
-	for name, gives in STAT_REFERENCES.get(stat, ()):
+	for name, base, boost in STAT_REFERENCES.get(stat, ()):
 		value = _item_value(name, prices)
 		if value:
+			gives = boosted(base, boost)
 			refs.append((name, value / gives * amount, amount / gives))
-	if stat == "energy" and point_price:
-		per_energy = point_price * REFILL_POINTS / REFILL_ENERGY
-		refs.append(("Energy refill (" + str(REFILL_POINTS) + " points)", per_energy * amount, amount / REFILL_ENERGY))
+	bar = {"energy": REFILL_ENERGY, "nerve": nerve_bar}.get(stat)
+	if bar and point_price:
+		per_unit = point_price * REFILL_POINTS / bar
+		label = stat.capitalize() + " refill (" + str(REFILL_POINTS) + " points)"
+		refs.append((label, per_unit * amount, amount / bar))
 	refs.sort(key=lambda r: r[1])
 	return refs
 
 
-def value_reward(reward, items, point_price):
+def value_reward(reward, items, point_price, nerve_bar=None):
 	"""
 	Cash value of one payout, plus how it was valued.
 	Returns (value or None, basis text, references) where references is the
-	stat_references list for intangible rewards (else empty).
+	stat_references list for intangible rewards (else empty). `nerve_bar` adds the
+	nerve refill to nerve rewards' references.
 	"""
 	prices = _item_prices(items)
 	kind = reward["kind"]
@@ -144,7 +163,7 @@ def value_reward(reward, items, point_price):
 			refs.append((label, value, count))
 		return point_price * reward["amount"], "cheapest points market listing", refs
 	if kind == "stat":
-		refs = stat_references(reward["name"], reward["amount"], prices, point_price)
+		refs = stat_references(reward["name"], reward["amount"], prices, point_price, nerve_bar)
 		if not refs:
 			return None, "no reference prices for " + reward["name"], []
 		yardstick = STAT_REFERENCES[reward["name"]][0][0]
